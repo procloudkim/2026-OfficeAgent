@@ -41,7 +41,7 @@
 - 공식 `retrobot/README.md`와 `retrobot/SKILL.md`를 다시 확인했다.
 - 로컬 Git 설정은 `core.hooksPath=.githooks`이며, 훅 파일은 실행 모드로 추적된다.
 - Git for Windows의 셸에서 `git`, `date`, `codex` 명령을 모두 찾았다.
-- 일반 커밋 `bee1fd3` 뒤 회고 `b7b2b70`이 자동 생성됐고, 회고 커밋에서는
+- 일반 커밋 `4bdafcf` 뒤 회고 `f444621`이 자동 생성됐고, 회고 커밋에서는
   재귀 실행이 멈췄다.
 - `uv run pytest` 결과 health 테스트 1개가 통과했다.
 
@@ -56,3 +56,23 @@
 
 - 현재 자동화 테스트는 health 경로만 덮는다.
 - ingestion, retrieval, 캐시 무효화 테스트와 실제 애플리케이션 구현은 아직 없다.
+
+## 2026-07-28 — GitHub 이메일 보호 대응
+
+### 문제
+
+- 첫 push가 `GH007: Your push would publish a private email address`로 거절됐다.
+- 공개되지 않은 지원자 커밋 5개가 개인 이메일을 author와 committer 주소로 사용했다.
+
+### 대응과 검증
+
+- 인증된 GitHub 계정의 ID와 login으로 이 리포에만
+  `227958568+procloudkim@users.noreply.github.com`을 설정했다.
+- `origin/main` 이후 공개되지 않은 5개 커밋의 이메일만 재작성했다.
+- 재작성 전 복구용 로컬 ref를 만들고, 커밋 수·트리·메시지·작성자명·커밋 시각이
+  모두 보존됐는지 커밋별로 비교했다.
+- 회고 문서의 과거 SHA 참조를 재작성된 현재 SHA와 일치시켰다.
+
+### 다음 확인
+
+- 변경된 커밋을 push하고 원격 `main`과 로컬 `main`의 SHA가 일치하는지 확인한다.
