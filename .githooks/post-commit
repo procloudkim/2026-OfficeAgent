@@ -1,35 +1,75 @@
-# Retrobot post-commit hook
-# 커밋 후 AI 에이전트를 호출하여 자동 회고를 생성합니다.
+#!/bin/sh
 
-# Retrobot이 만든 커밋에서 다시 트리거되지 않도록 방지 (무한 루프 차단)
+# Retrobot post-commit hook
+# Codex를 읽기 전용으로 실행하고, 최종 Markdown만 retros/에 저장합니다.
+
 LAST_MSG=$(git log -1 --pretty=%s 2>/dev/null)
-if echo "$LAST_MSG" | grep -q "Retrobot"; then
-    exit 0
-fi
+case "$LAST_MSG" in
+    *Retrobot*) exit 0 ;;
+esac
 
 SKILL_PATH="retrobot/SKILL.md"
+WORKLOG_PATH="retros/WORKLOG.md"
 
-if [ ! -f "$SKILL_PATH" ]; then
+if [ ! -f "$SKILL_PATH" ] || [ "${RETROBOT_SKIP:-0}" = "1" ]; then
     exit 0
 fi
 
+if ! command -v codex >/dev/null 2>&1; then
+    echo "ℹ Retrobot: codex CLI를 찾지 못해 회고 생성을 건너뜁니다."
+    exit 0
+fi
+
+STAMP=$(TZ=Asia/Seoul date "+%Y-%m-%d_%H%M%S")
+RETRO_PATH="retros/${STAMP}_retro.md"
+TEMP_PATH="${RETRO_PATH}.tmp"
+TIMELINE_PATH="retros/TIMELINE.md"
+GIT_DIR=$(git rev-parse --git-dir)
+ERROR_LOG="${GIT_DIR}/retrobot-last.log"
+
+mkdir -p retros
 echo "🤖 Retrobot: 회고 생성 중..."
 
-# Claude Code SDK 또는 Codex CLI로 스킬 실행
-if command -v claude >/dev/null 2>&1; then
-    claude -p "$(cat $SKILL_PATH)" --allowedTools 'Bash(command)' 'Read(file_path)' 'Write(file_path,content)' 'Glob(pattern)' 'Grep(pattern)' 2>/dev/null
-elif command -v codex >/dev/null 2>&1; then
-    codex --quiet "$(cat $SKILL_PATH)" 2>/dev/null
-else
-    echo "ℹ Retrobot: claude 또는 codex CLI가 설치되어 있지 않습니다. 건너뜁니다."
+{
+    cat "$SKILL_PATH"
+    printf "\n\n## 이번 실행 입력\n\n"
+    printf "### 최신 커밋\n\n"
+    git show -1 --format=fuller --stat --name-status --no-renames
+    if [ -f "$WORKLOG_PATH" ]; then
+        printf "\n\n### 지원자 작업 로그\n\n"
+        cat "$WORKLOG_PATH"
+    fi
+} | codex exec \
+    --ephemeral \
+    --sandbox read-only \
+    --skip-git-repo-check \
+    -c 'approval_policy="never"' \
+    - >"$TEMP_PATH" 2>"$ERROR_LOG"
+CODEX_STATUS=$?
+
+if [ "$CODEX_STATUS" -ne 0 ] || [ ! -s "$TEMP_PATH" ]; then
+    rm -f "$TEMP_PATH"
+    echo "ℹ Retrobot: 생성 실패(exit ${CODEX_STATUS}). ${ERROR_LOG}를 확인하세요."
     exit 0
 fi
 
-# 회고 파일이 생성/변경되었으면 자동 커밋
-if [ -n "$(git status --porcelain retros/)" ]; then
-    git add retros/
-    git commit -m "docs(retro): 자동 회고 생성 by Retrobot" --no-verify
-    echo "✅ Retrobot: 회고가 커밋되었습니다."
-else
-    echo "ℹ Retrobot: 새로운 회고 없음"
+mv "$TEMP_PATH" "$RETRO_PATH"
+
+if [ ! -f "$TIMELINE_PATH" ]; then
+    {
+        printf "# Retrobot 타임라인\n\n"
+        printf "| 시각 (KST) | 회고 | 기준 커밋 |\n"
+        printf "|---|---|---|\n"
+    } >"$TIMELINE_PATH"
 fi
+
+SUBJECT=$(git log -1 --pretty=%s | tr '|' '/')
+printf "| %s | [%s](./%s) | %s |\n" \
+    "$STAMP" \
+    "$(basename "$RETRO_PATH")" \
+    "$(basename "$RETRO_PATH")" \
+    "$SUBJECT" >>"$TIMELINE_PATH"
+
+git add retros/
+git commit -m "docs(retro): 자동 회고 생성 by Retrobot" --no-verify
+echo "✅ Retrobot: ${RETRO_PATH} 생성 및 커밋 완료"

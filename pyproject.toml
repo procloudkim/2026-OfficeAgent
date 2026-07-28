@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "officeagent-document-qa"
+version = "0.1.0"
+description = "Evidence-grounded document Q&A API for the OfficeAgent backend challenge"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "aiosqlite>=0.22,<1",
+    "anyio>=4.12,<5",
+    "chromadb>=1.5,<2",
+    "fastapi>=0.135,<1",
+    "fastembed>=0.7,<1",
+    "numpy>=2.0,<3",
+    "pydantic-settings>=2.12,<3",
+    "pypdf>=6.5,<7",
+    "python-multipart>=0.0.20,<1",
+    "uvicorn[standard]>=0.41,<1",
+]
+
+[project.scripts]
+officeagent = "officeagent.main:run"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28,<1",
+    "pytest>=9,<10",
+    "pytest-asyncio>=1.3,<2",
+    "pytest-cov>=7,<8",
+    "ruff>=0.15,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/officeagent"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["ASYNC", "B", "E", "F", "I", "UP"]
