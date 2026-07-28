@@ -2,6 +2,18 @@
 
 이 문서는 이 템플릿 리포지토리에 포함된 구성 요소와 설정을 설명합니다.
 
+> **역사적 upstream reference 경계:** 아래 내용은 최초 template의 구성과
+> 의도를 보존한 설명이며 현재 제출 구현이나 Retrobot 동작의 source of truth가
+> 아닙니다. 현재 구조는 `docs/REPOSITORY_MAP.md`, 제품 동작은 실제 코드·테스트와
+> `ARCHITECTURE.md`, 요구 계약은 `docs/PRD.md`를 따릅니다.
+>
+> 현재 Retrobot은 활성화된 post-commit hook의 `codex exec` 경로만 지원하고
+> 최신 commit 정보와 선택적 `retros/WORKLOG.md`만 입력으로 사용합니다. Claude
+> fallback이나 전역 Codex/Claude 로그 분석은 구현되어 있지 않습니다. 정확한
+> skip 조건과 자동 commit 경계는 `CLAUDE.md`, `retrobot/README.md`,
+> `.githooks/post-commit`을 따르며, 아래 Retrobot 절은 초기 template 설명으로만
+> 읽습니다.
+
 ## 디렉토리 구조
 
 ```

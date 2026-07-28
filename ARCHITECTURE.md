@@ -3,8 +3,9 @@
 ## 1. 목표와 경계
 
 핵심 목표는 “업로드된 문서에 근거한 답변”을 재현 가능하게 만드는 것입니다.
-FastAPI는 전송만 담당하고, 수집·검색·캐시·생성 규칙은 application 계층에 둡니다.
-실제 저장소와 Codex 프로토콜은 domain port 뒤의 infrastructure adapter입니다.
+FastAPI는 주로 전송을 담당하고, 수집·검색·캐시·생성 규칙은 application 계층에
+둡니다. 저장소·embedding·Codex 프로토콜은 domain port 뒤의 infrastructure
+adapter입니다.
 
 ```mermaid
 flowchart LR
@@ -22,8 +23,12 @@ flowchart LR
     L --> A
 ```
 
-의존 방향은 `api → application → domain ← infrastructure`입니다.
-`bootstrap.py`만 모든 concrete adapter를 조립합니다.
+주요 상태 저장·검색·생성 의존은
+`api → application → domain port ← infrastructure` 방향이며, `bootstrap.py`가
+그 concrete adapter를 조립합니다. 다만 현재 구현은 strict hexagonal 구조가
+아닙니다. `IngestionService`가 parser 함수를 infrastructure에서 직접 import하고,
+FastAPI adapter도 parser validation exception을 직접 import하는 실용적 예외가
+있습니다.
 
 ## 2. 폴더 책임
 
@@ -42,6 +47,8 @@ retros/                  # Retrobot이 관리하는 AI 협업 회고
 
 네이밍 계약은 [ADR-0001](./docs/adr/ADR-0001-repository-structure-and-naming.md)에
 고정했습니다.
+현재 기술 선택의 정본은 [Technology Decision Register](./docs/DECISION_LOG.md),
+되돌리기 어렵거나 위험한 결정의 상세 근거는 연결된 ADR입니다.
 
 ## 3. 수집 흐름
 
@@ -49,21 +56,32 @@ retros/                  # Retrobot이 관리하는 AI 협업 회고
 2. 클라이언트 경로를 제거한 파일명과 확장자로 PDF/TXT/MD parser를 선택합니다.
 3. 원본 byte의 SHA-256으로 변경 여부를 판단합니다.
 4. SQLite는 파일명 기반 UUID를 유지하고 실제 내용 변경 때만 version을 올립니다.
-5. page를 넘지 않는 900자 청크(150자 overlap)를 만듭니다. 가능한 경우 60%
+5. metadata upsert 직후, failure-prone embedding/vector 작업 전에 cache를
+   무효화합니다. `CREATED`와 `UNCHANGED`는 corpus 전체를, `UPDATED`는 해당
+   문서를 인용한 dependency만 무효화합니다.
+6. page를 넘지 않는 900자 청크(150자 overlap)를 만듭니다. 가능한 경우 60%
    이후 공백에서 경계를 자릅니다.
-6. FastEmbed `passage_embed`로 384차원 벡터를 만들고 Chroma의 해당 문서 청크를
+7. FastEmbed `passage_embed`로 384차원 벡터를 만들고 Chroma의 해당 문서 청크를
    교체합니다.
-7. 신규 문서는 검색 corpus 전체를 바꾸므로 모든 캐시를 무효화합니다. 기존
-   문서 갱신은 그 문서를 인용한 cache dependency만 무효화합니다.
 
 TXT/MD 출처는 문자 `start_offset`/`end_offset`, PDF는 1-based `page_number`와
-offset을 함께 저장합니다. 같은 파일을 재업로드해도 version은 올라가지 않지만
-벡터는 다시 써서 이전 부분 실패를 복구할 수 있게 했습니다.
+offset을 함께 저장합니다. 같은 byte를 재업로드해도 version은 올라가지 않지만
+corpus 전체 cache를 무효화하고 벡터를 다시 씁니다. 현재 metadata schema에는
+정상적인 same-hash 재업로드와, metadata만 반영된 뒤 embedding/vector가 실패한
+재시도를 구분하는 readiness 상태가 없기 때문입니다.
 
-SQLite와 Chroma 사이에는 분산 트랜잭션이 없습니다. metadata 갱신 뒤 vector
-write가 실패하면 요청은 실패하며, 같은 파일 재업로드가 idempotent re-index를
-수행해 복구합니다. 단일 과제 서버에서 복잡한 outbox를 추가하는 대신 실패를
-명시하고 재시도 가능한 경계를 택했습니다.
+SQLite와 Chroma 사이에는 분산 트랜잭션이 없습니다. SQLite metadata가 먼저
+commit되며 cache 무효화도 embedding/vector보다 먼저 수행됩니다. 이후 작업이
+실패하면 오류를 그대로 전파하지만, 그 사이 질의는 Chroma에 남은 이전 또는
+부분 corpus로 답하고 다시 cache할 수 있습니다. 같은 byte의 재시도는
+`UNCHANGED`로 분류되어 corpus 전체 cache를 다시 무효화한 다음 re-index하므로,
+첫 실패와 재시도 사이에 순차적으로 만들어진 cache도 제거합니다.
+
+이 보상 경계는 cross-store 원자성이나 절대적인 stale-answer 방지를 주장하지
+않습니다. 정상 same-hash 재업로드도 관련 없는 cache까지 제거하는 비용이 있고,
+무효화와 vector 교체 사이의 동시 질의가 다시 cache를 만드는 race는 남습니다.
+또한 Chroma 교체는 delete와 upsert가 하나의 트랜잭션이 아니어서 중간 실패 시
+이전, 부분 또는 빈 vector 상태가 관찰될 수 있습니다.
 
 ## 4. 질의와 답변 흐름
 
@@ -160,3 +178,7 @@ FastEmbed와 Codex App Server의 다중 SSE delta와 citation을 확인합니다
 - 로컬 단일 process/단일 node 저장소이며 수평 확장 lock은 없습니다.
 - 고정 문자 청킹과 단일 dense retrieval만 구현했습니다.
 - 문서 삭제 API와 사용자별 corpus 격리는 과제 범위에 포함하지 않았습니다.
+- SQLite metadata/cache와 Chroma vector 교체는 원자적이지 않으며, ingest와
+  동시 실행되는 질의의 failure-window recache race는 직렬화하지 않습니다.
+- failed-ingest retry의 안전성을 위해 모든 `UNCHANGED` 재업로드에서 corpus
+  cache 전체를 무효화하므로 cache 효율보다 보수적입니다.

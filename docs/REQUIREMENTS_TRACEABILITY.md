@@ -14,11 +14,11 @@ PRD 요구를 구현·테스트·실런타임 증거에 연결한 평가자용 �
 | 동일 질문 cache | normalized exact SQLite lookup | cache·SSE 테스트 | VERIFIED |
 | 유사 질문 cache | cosine `>=0.95` lookup | `test_cache_invalidation.py` | VERIFIED |
 | cache hit 노출 | `cache_hit`, `cache_match` | SSE·cache 테스트 | VERIFIED |
-| 문서 변경 무효화 | `cache_dependencies` + valid update | 실제 SQLite cache 테스트 | VERIFIED |
+| 문서 변경 무효화 | `CREATED`/`UNCHANGED` corpus 전체 + `UPDATED` dependency 무효화 | 실제 SQLite/Chroma-backed 흐름의 embedding·vector 경계 failure/retry 테스트 | IMPLEMENTED |
 | prompt 직접 설계 | `application/prompts.py` | `PROMPT_DESIGN.md`, retrieval prompt 검증 | VERIFIED |
 | 한 줄 실행 | `uv run officeagent` | 실제 기동 + `/health/live` 200 | VERIFIED |
 | 한 줄 테스트 | `uv run pytest` | 로컬 전체 suite | VERIFIED |
-| 필수 3 테스트 경로 | ingestion/retrieval/cache invalidation | 동명 test 파일 | VERIFIED |
+| 필수 3 테스트 경로 | ingestion/retrieval/cache invalidation | 동명 test 파일, 현재 working tree 25개 offline 테스트 | IMPLEMENTED |
 | 문서–코드 일치 | README/Architecture/ADR/traceability | diff·tree 대조 | REVIEWED |
 
 ## 불합격 방지 점검
@@ -37,6 +37,28 @@ PRD 요구를 구현·테스트·실런타임 증거에 연결한 평가자용 �
 상태 의미: `VERIFIED`는 실행 증거 있음, `IMPLEMENTED`는 코드 존재하나 표의 특정
 런타임 영수증 갱신 전, `REVIEWED`는 정적 대조, `PROCESS`는 Git/GitHub 기록으로
 판정합니다.
+
+## 현재 working-tree 증거 경계
+
+2026-07-29의 미커밋 working tree에서는 embedding 실패와 vector 실패 각각에
+대해 신규 문서 metadata 선반영, 실패 창의 old-corpus recache, same-byte
+`UNCHANGED` retry, corpus-wide invalidation, 새 문서 citation을 한 흐름으로
+검증합니다. 정상 same-hash 재업로드의 보수적 전체 무효화 정책도 별도 회귀
+테스트로 고정했고, 전체 offline suite는 25개 테스트를 통과했습니다.
+
+| 동작 | working-tree 테스트 (`tests/test_cache_invalidation.py`) | 증거 상태 |
+|---|---|---|
+| UPDATE embedding 실패·재시도 | `test_embedding_failure_invalidates_related_cache_before_retry` | PASS, final receipt pending |
+| UPDATE vector 실패·재시도 | `test_vector_failure_invalidates_related_cache_before_retry` | PASS, final receipt pending |
+| CREATED embedding 실패·재시도·failure-window recache | `test_created_embedding_failure_retry_invalidates_failure_window_recache` | PASS, final receipt pending |
+| CREATED vector 실패·재시도·failure-window recache | `test_created_vector_failure_retry_invalidates_failure_window_recache` | PASS, final receipt pending |
+| 정상 same-hash corpus-wide 정책 | `test_normal_same_hash_reupload_invalidates_corpus_cache` | PASS, final receipt pending |
+| 정상 UPDATE related/unrelated 정책 | `test_document_update_invalidates_related_cache_only` | PASS, final receipt pending |
+
+이 결과는 아직 새 commit, 제출 저장소의 영구 verification receipt, Control
+receipt 또는 live smoke로 승격되지 않았습니다. 아래 2026-07-28 문서는 그
+당시 baseline의 역사적 영수증이며 이번 working-tree revision의 최종 증거로
+해석하지 않습니다.
 
 명령·환경·결과의 최소 영수증은
 [`docs/verification/2026-07-28.md`](verification/2026-07-28.md)에 있습니다.

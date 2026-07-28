@@ -2,15 +2,23 @@
 
 > 당신의 회고를 자동으로 기록해주는 도구입니다.
 
-Retrobot은 AI 에이전트(Claude Code / Codex)가 자신의 작업 로그를 분석하여 **KPT(Keep/Problem/Try) 회고**를 자동 생성합니다.
-매 push마다 자동으로 회고를 생성하고, 타임라인으로 정리하여 성장의 흐름을 한눈에 볼 수 있습니다.
+Retrobot은 활성화된 post-commit 훅이 Codex에 제한된 커밋 문맥을 전달하여
+**KPT(Keep/Problem/Try) 회고**를 생성합니다. 훅이 실행되고 아래 skip 조건을
+통과한 `git commit`의 회고를 타임라인으로 정리합니다.
 
 ## 동작 방식
 
 1. `git commit` 완료 후 `.githooks/post-commit` 훅이 트리거됨
-2. 훅이 `claude` 또는 `codex` CLI를 호출하며 `retrobot/SKILL.md` 지침을 전달
-3. 에이전트가 `~/.claude/projects/` (또는 `~/.codex/`) 로그를 읽고 분석
-4. KPT 회고 마크다운을 `retros/`에 생성하고 자동 커밋
+2. 훅이 `codex exec`에 `retrobot/SKILL.md`, 최신 커밋 정보, 존재하는 경우
+   `retros/WORKLOG.md`를 전달
+3. 훅은 Codex를 read-only·ephemeral·never-approve 설정으로 실행하고,
+   SKILL은 명시적으로 전달된 입력만 근거로 사용하도록 지시
+4. 생성 성공 시 KPT 회고와 `retros/TIMELINE.md`를 갱신하고
+   `docs(retro): 자동 회고 생성 by Retrobot` 메시지로 자동 커밋
+
+훅은 위 자동 회고 커밋, `RETROBOT_SKIP=1`, skill 파일 부재, Codex CLI 부재
+또는 생성 실패 시 회고 생성을 건너뜁니다. Claude fallback은 구현되어 있지
+않으며 훅은 전역 Codex/Claude 로그를 입력으로 제공하지 않습니다.
 
 ## 설정
 
@@ -20,15 +28,10 @@ Retrobot은 AI 에이전트(Claude Code / Codex)가 자신의 작업 로그를 �
 git config core.hooksPath .githooks
 ```
 
-## 수동 실행
+## 실행 경계
 
-```bash
-# Claude Code로 실행
-claude -p "$(cat retrobot/SKILL.md)"
-
-# Codex로 실행
-codex "$(cat retrobot/SKILL.md)"
-```
+현재 지원되는 자동 실행 경로는 `.githooks/post-commit`의 `codex exec`뿐입니다.
+별도 수동 실행이나 Claude fallback은 이 리포지토리에서 제공하지 않습니다.
 
 ## 출력 구조
 

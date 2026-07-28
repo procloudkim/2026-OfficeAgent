@@ -38,7 +38,10 @@ class VectorStore(Protocol):
         chunks: Sequence[Chunk],
         embeddings: Sequence[Sequence[float]],
     ) -> None:
-        """Atomically replace every indexed version of a document."""
+        """Replace a document's chunks on success.
+
+        Adapter-level and cross-store atomicity are not guaranteed.
+        """
 
     async def search(
         self,

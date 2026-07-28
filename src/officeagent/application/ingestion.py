@@ -63,6 +63,20 @@ class IngestionService:
             content_type=content_type or "application/octet-stream",
             content_hash=content_hash,
         )
+
+        invalidated = 0
+        if upsert.change in (DocumentChange.CREATED, DocumentChange.UNCHANGED):
+            # A new document can change the best evidence for every question.
+            # UNCHANGED can also be a retry after a failed create or update, so
+            # conservatively clear the corpus cache before vector work.
+            invalidated = await self._metadata_store.invalidate_all_cache()
+        elif upsert.change is DocumentChange.UPDATED:
+            # Metadata commits before embedding/vector work. Invalidate first so
+            # failures cannot leave an older answer cache available.
+            invalidated = await self._metadata_store.invalidate_cache_for_document(
+                upsert.document.id
+            )
+
         chunks = chunk_sections(
             upsert.document,
             sections,
@@ -82,15 +96,6 @@ class IngestionService:
             chunks,
             embeddings,
         )
-
-        invalidated = 0
-        if upsert.change is DocumentChange.CREATED:
-            # A larger corpus may change the best evidence for every question.
-            invalidated = await self._metadata_store.invalidate_all_cache()
-        elif upsert.change is DocumentChange.UPDATED:
-            invalidated = await self._metadata_store.invalidate_cache_for_document(
-                upsert.document.id
-            )
 
         return IngestionResult(
             document=upsert.document,

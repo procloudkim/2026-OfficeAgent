@@ -58,9 +58,13 @@ OfficeAgent BE 채용 과제 — Document Q&A API. 문서를 업로드하면 내
 ## Retrobot (자동 회고)
 
 - `retrobot/SKILL.md` — AI 에이전트가 읽고 실행하는 KPT 회고 생성 지침
-- `.githooks/post-commit` — 커밋 후 `claude` 또는 `codex` CLI를 호출하여 KPT 회고 자동 생성
-- 커밋 메시지에 "Retrobot"이 포함되면 훅 스킵 (무한 루프 방지)
-- 회고 결과는 `retros/` 디렉토리에 저장되고 자동 커밋됨
+- `.githooks/post-commit` — 커밋 후 `codex exec`에 skill, 최신 커밋 정보,
+  선택적 `retros/WORKLOG.md`만 전달하여 KPT 회고 자동 생성
+- 자동 회고 커밋 메시지가 정확히 `docs(retro): 자동 회고 생성 by Retrobot`이거나
+  `RETROBOT_SKIP=1`, skill/Codex 부재, 생성 실패이면 훅 스킵
+- Claude fallback은 구현되어 있지 않으며 훅은 전역 Codex/Claude 로그를 입력으로
+  제공하지 않음. SKILL은 명시적으로 전달된 입력만 근거로 사용하도록 제한
+- 성공한 회고는 `retros/`와 `retros/TIMELINE.md`에 저장되고 자동 커밋됨
 - 과제 구현과는 별개의 도구
 
 ### 설정
@@ -71,12 +75,10 @@ OfficeAgent BE 채용 과제 — Document Q&A API. 문서를 업로드하면 내
 git config core.hooksPath .githooks
 ```
 
-### 수동 실행
+### 실행 경계
 
-```bash
-claude -p "$(cat retrobot/SKILL.md)"   # Claude Code
-codex "$(cat retrobot/SKILL.md)"       # Codex
-```
+현재 지원되는 자동 실행 경로는 post-commit 훅의 `codex exec`뿐이며, 별도 수동
+실행이나 Claude fallback은 이 리포지토리에서 제공하지 않습니다.
 
 ## 평가 비중
 
