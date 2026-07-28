@@ -5,7 +5,7 @@
 
 LAST_MSG=$(git log -1 --pretty=%s 2>/dev/null)
 case "$LAST_MSG" in
-    *Retrobot*) exit 0 ;;
+    "docs(retro): 자동 회고 생성 by Retrobot") exit 0 ;;
 esac
 
 SKILL_PATH="retrobot/SKILL.md"
