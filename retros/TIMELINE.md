@@ -6,3 +6,4 @@
 | 2026-07-28_162415 | [2026-07-28_162415_retro.md](./2026-07-28_162415_retro.md) | fix: use KST timestamps for retrospectives |
 | 2026-07-28_162923 | [2026-07-28_162923_retro.md](./2026-07-28_162923_retro.md) | docs: record Retrobot setup verification |
 | 2026-07-28_172705 | [2026-07-28_172705_retro.md](./2026-07-28_172705_retro.md) | feat: implement grounded document Q&A pipeline |
+| 2026-07-29_012229 | [2026-07-29_012229_retro.md](./2026-07-29_012229_retro.md) | fix(cache): close failed-ingestion invalidation gaps |
