@@ -1,108 +1,135 @@
-# OfficeAgent BE 채용 과제 — Document Q&A API
+# OfficeAgent Document Q&A API
 
-## 과제 진행 절차
+업로드한 문서를 실제 벡터 검색하고, 근거가 있을 때만 Codex CLI를 호출해
+출처와 함께 답하는 FastAPI 서버입니다. PDF·TXT·Markdown, 실제 SSE delta,
+동일·유사 질문 캐시, 문서 변경에 따른 의존성 기반 무효화를 구현했습니다.
 
-[![Use this template](https://img.shields.io/badge/Use_this_template-238636?style=for-the-badge&logo=github&logoColor=white)](https://github.com/roboco-io/officeagent-onboarding-challenge/generate)
+## 빠른 실행
 
-| # | 단계 | 명령 / 링크 |
-|---|------|------------|
-| 1 | 위 버튼 → Owner를 **본인 계정**으로, **Private** 리포지토리 생성 | [Use this template](https://github.com/roboco-io/officeagent-onboarding-challenge/generate) |
-| 2 | **[`serithemage`](https://github.com/serithemage)를 Collaborator로 초대** ← **이 초대가 과제 시작 신고입니다** | Settings → Collaborators → Add people |
-| 3 | Retrobot(자동 회고) 활성화 | `git config core.hooksPath .githooks` |
-| 4 | 과제 구현 — **첫 커밋 시점부터 168시간 창이 시작됩니다** | 아래 §작업 시간 규칙 |
-| 5 | **작업한 날은 하루 1회 이상 push** — 커밋 때마다 Retrobot이 회고를 남깁니다 | `git push` (아래 §Retrobot) |
-| 6 | 마감 전 최종 커밋 push. **별도 제출 연락은 필요 없습니다** (초대가 되어 있으면 저희가 확인합니다) | `git push` |
+요구 환경은 Python 3.11~3.13, [uv](https://docs.astral.sh/uv/), Node.js,
+ChatGPT 구독으로 로그인한 `@openai/codex` CLI입니다. 별도 API 키는 사용하지
+않습니다.
 
-> ### ⚠️ 초대를 먼저, 코딩은 그다음
->
-> **초대 없이 시작한 과제는 평가할 수 없습니다.** Private 리포라서 초대 전에는 저희가 리포의 존재도, 여러분이 언제 착수했는지도 확인할 수 없기 때문입니다.
->
-> 작업 시간(168시간)은 여러분의 **첫 커밋**부터 셉니다(아래 §작업 시간 규칙). 초대를 먼저 보내두면 그 시작 시점이 실시간으로 기록되어 서로 다툴 일이 없습니다. 초대는 리포를 만든 직후, **첫 커밋 전에** 보내주세요.
->
-> 이미 커밋을 시작한 뒤에 초대를 보내셨다면 그것만으로 불이익은 없습니다. 다만 늦어질수록 첫 커밋 시점 확인이 번거로워지니 지금 바로 보내주세요.
+```bash
+npm install -g @openai/codex
+codex login
+uv sync --locked
+uv run officeagent
+```
 
-## ⏱ 작업 시간 규칙 — 꼭 먼저 읽으세요
+위 마지막 줄이 서버를 띄우는 **한 줄 실행 명령**입니다. 서버는
+`0.0.0.0:8000`에 bind하며 로컬 접속 주소는 `http://127.0.0.1:8000`,
+OpenAPI 문서는 `/docs`입니다. 최초 문서 업로드 때 FastEmbed 모델 약 220 MB를
+내려받으므로 네트워크가 한 번 필요합니다.
 
-**착수 시점은 자유이되, 첫 커밋으로부터 168시간(=24h × 7일) 이내의 커밋만 평가 대상입니다.**
+자동화 테스트는 Codex 로그인·LLM 구독·임베딩 모델 다운로드 없이 실행됩니다.
 
-| 항목 | 내용 |
-|------|------|
-| 시작 신고 | **`serithemage` Collaborator 초대** — 첫 커밋 전에 보내주세요 (§과제 진행 절차 2단계) |
-| 창 시작 (T0) | 여러분이 작성한 **첫 커밋** 시각 ("Use this template" 생성 커밋은 제외) |
-| 창 종료 | `T0 + 168시간` |
-| **하드 마감** | **2026년 8월 9일 (일) 23:59 KST** — 창을 온전히 쓰려면 늦어도 **8월 2일 23:59에는 시작** |
-| 창 밖 커밋 | 제출 무효는 아니지만 **채점에서 제외**됩니다 (README 정리·오탈자 수정도 예외 없음) |
-| 판정 기준 | `git log`의 committer date. GitHub push 기록과 교차 확인합니다 |
+```bash
+uv run pytest
+```
 
-바쁜 주를 피해 원하는 때 시작하시라는 규칙입니다. **창을 다 쓰지 않아도 됩니다** — 3일 만에 제출해도 감점은 없습니다. 다만 마무리 작업까지 168시간 안에 넣어 계획하세요.
+## API 사용
 
-## 과제 내용
+문서 업로드:
 
-**[PRD 바로가기 →](./docs/PRD.md)**
+```bash
+curl -F "file=@sample-docs/company-policy.txt;type=text/plain" \
+  http://127.0.0.1:8000/v1/documents
+```
 
-문서를 업로드하면 내용을 분석하고, 사용자 질문에 대해 문서 근거 기반 답변을 생성하는 REST API 서버를 구현합니다.
+실시간 SSE 답변:
 
-### 평가 역량
+```bash
+curl -N -H "Content-Type: application/json" \
+  -d '{"question":"직무 관련 교육비의 연간 지원 한도는?"}' \
+  http://127.0.0.1:8000/v1/questions/stream
+```
 
-| 역량 | 비중 | 설명 |
-|------|-----:|------|
-| RAG | 23% | 문서 청킹, 임베딩, 벡터 검색, 출처 표기, 답변 생성 |
-| BE 설계 | 18% | FastAPI 서버 설계, 레이어 분리, 비동기 처리, 에러 핸들링 |
-| LLM 활용 | 18% | Claude Code SDK 또는 Codex CLI 통합, **스트리밍**, timeout·retry |
-| 캐싱 | 18% | LLM 응답 캐시, 유사 질문 처리, 문서 변경 시 무효화 |
-| 프롬프트 | 13% | 프롬프트 설계 및 설계 의도 문서화 |
-| **테스트** | **10%** | 핵심 3경로(ingestion·retrieval·캐시 무효화) 자동화 테스트 |
+비스트리밍 JSON 답변:
 
-**완성도보다 설계 의도와 구현 품질을 우선 평가합니다.** 부분 구현도 평가 대상이며, 미구현 부분은 설계 문서로 대체할 수 있습니다.
+```bash
+curl -H "Content-Type: application/json" \
+  -d '{"question":"직무 관련 교육비의 연간 지원 한도는?"}' \
+  http://127.0.0.1:8000/v1/questions
+```
 
-### 기술 스택
+SSE 이벤트 순서는 다음과 같습니다.
 
-- **언어 / 프레임워크:** Python 3.11+ / FastAPI
-- **LLM:** Claude Code SDK 또는 Codex CLI (구독 기반, API 키 불필요)
-- 그 외 기술 선택(벡터 DB, 캐시 DB, 청킹 전략, 검색 방식)은 자유 — 선택 이유를 `ARCHITECTURE.md`에 설명
+```text
+answer.started
+answer.delta       # Codex App Server가 보낸 실제 delta, 1회 이상
+answer.citation    # 검색 결과로 서버가 만든 검증 가능한 출처
+answer.completed
+```
 
-### ⚠ 놓치기 쉬운 필수 요건
+스트림 시작 후 실패는 HTTP 상태를 바꿀 수 없으므로 `answer.error` 이벤트로
+전달합니다. 모든 이벤트에는 같은 `request_id`가 포함되며, 시작·완료 이벤트에서
+`cache_hit`와 `cache_match`를 확인할 수 있습니다.
 
-PRD에 있지만 지난 라운드에서 자주 빠졌던 항목입니다:
+## 핵심 선택
 
-- **자동화 테스트** — 핵심 3경로를 덮는 테스트가 **하나도 없으면 불합격**입니다. LLM 호출은 목으로 대체해도 되고, 구독 없이 돌아가면 가산점입니다. 실행 방법을 README에 한 줄 명령으로 적어주세요.
-- **스트리밍 응답** — 답변 전체를 모아 한 번에 반환하는 방식만 있으면 감점입니다.
-- **문서와 코드 일치** — `ARCHITECTURE.md`에 적은 기술 선택과 실제 구현이 달라도 감점됩니다. 도중에 바꿨다면 문서를 고치거나, 바꾼 이유를 남겨주세요 (후자가 오히려 가산점).
-- **캐시 무효화** — 문서가 변경되면 관련 캐시가 실제로 무효화되어야 합니다.
+| 관심사 | 선택 | 이유 |
+|---|---|---|
+| 웹/API | FastAPI + 비동기 유스케이스 | 얇은 HTTP 계층과 테스트 가능한 코어 분리 |
+| 추출 | pypdf + UTF-8 텍스트 | PDF·TXT·MD 세 형식과 page/offset 출처 보존 |
+| 임베딩 | FastEmbed 다국어 MiniLM, 384차원 | 한국어 포함 로컬 추론, API 키 불필요 |
+| 검색 | Chroma PersistentClient, cosine | 실제 영속 벡터 DB와 명시적 임베딩 |
+| 메타·캐시 | SQLite/aiosqlite | 문서 버전·답변·의존성을 트랜잭션으로 관리 |
+| LLM | Codex App Server stdio JSON-RPC | ChatGPT 구독을 사용하면서 실제 delta 수신 |
+| 실행 | 로컬 `uv run officeagent` | Codex 구독 세션을 호스트에서 그대로 사용 |
 
-## Retrobot — 자동 회고
+Docker는 의도적으로 기본 실행 경로로 선택하지 않았습니다. 컨테이너 안으로 로컬
+Codex 로그인 상태를 전달하는 비표준 마운트를 필수화하는 것보다, PRD가 허용한
+README 한 줄 실행을 사용해 재현성을 높였습니다.
 
-이 프로젝트에는 [Retrobot](./retrobot/README.md)이 포함되어 있습니다. `git commit`할 때마다 Claude Code / Codex 작업 로그를 분석하여 KPT 회고를 자동 생성하고 `retros/`에 저장합니다. 활성화는 §과제 진행 절차 3단계에서 한 번만 하면 됩니다.
+## 테스트 의도
 
-`retros/`는 **필수 제출물**입니다. 회고는 "AI 도구를 어떻게 다뤘고 그 과정에서 무엇을 배웠는가"를 평가하는 사료로 쓰이며, 코드 완성도와는 별개의 축으로 채점됩니다.
-
-### 📌 작업한 날은 하루 1회 이상 push 해주세요
-
-Retrobot은 **커밋 시점의 작업 로그**를 읽어 회고를 만듭니다. 그래서 며칠 치 작업을 마지막에 한 번에 커밋하면, 그 사이에 무엇을 시도하고 무엇을 버렸는지가 회고에 남지 않습니다. 남는 것은 "완성된 결과"뿐이고, 저희가 보고 싶은 **과정**은 사라집니다.
-
-- **작업한 날은 그날 안에 커밋하고 push** 해주세요. 미완성 상태여도 괜찮습니다 — 오히려 중간 상태가 회고의 재료입니다.
-- 하루에 여러 번 커밋해도 좋습니다. **작업하지 않은 날에 억지로 커밋할 필요는 없습니다.**
-- push까지 해주셔야 저희가 확인할 수 있습니다. 로컬 커밋만으로는 보이지 않습니다.
-
-커밋 횟수 자체를 점수로 세지는 않습니다. 다만 **회고가 사실상 없는 제출물은 평가할 축 하나가 통째로 비게 되어** 불리합니다. 완벽한 커밋만 남기려 하기보다, 막힌 지점과 방향을 바꾼 순간이 기록에 남도록 해주세요.
-
-## 제출 전 체크리스트
-
-절차는 위 §과제 진행 절차를 따르세요. 마감 전 아래를 확인하시면 됩니다.
-
-- [ ] `serithemage` Collaborator 초대를 보냈다
-- [ ] 첫 커밋으로부터 **168시간 안에** 마지막 커밋을 마쳤다 (마무리 커밋 포함)
-- [ ] **작업한 날마다 push** 했고, `retros/`에 회고가 쌓여 있다
-- [ ] `docker compose up` 또는 README에 적은 방법으로 **한 줄 실행**이 된다
-- [ ] README에 적은 명령으로 **테스트가 실행**된다
-- [ ] `ARCHITECTURE.md`에 적은 기술 선택이 실제 구현과 **일치**한다
-- [ ] 필수 산출물이 모두 있다 — `README.md`(실행 + 테스트 실행 방법), `ARCHITECTURE.md`, `PROMPT_DESIGN.md`, `tests/`, `retros/`
-- [ ] 최종 커밋을 push 했다
-
-| | |
+| 파일 | 검증 범위 |
 |---|---|
-| **하드 마감** | 2026년 8월 9일 (일) 23:59 KST |
-| **작업 시간** | 첫 커밋 + 168시간 (착수 시점 자유, 늦어도 8월 2일 23:59 시작 권장) |
-| **제출 연락** | 불필요 — 초대가 되어 있으면 저희가 확인합니다 |
+| `tests/test_ingestion.py` | multipart 업로드 → TXT/PDF 추출 → SQLite·Chroma 저장 |
+| `tests/test_retrieval.py` | 기대 문서 상위 검색, 출처, 근거 없음 시 LLM 미호출 |
+| `tests/test_cache_invalidation.py` | exact/similar hit, 관련 문서만 실제 무효화 |
+| `tests/test_streaming.py` | 두 fake gateway delta의 SSE 전달 순서, 출처, cache metadata |
+| `tests/test_codex_protocol.py` | JSON-RPC 순서, timeout, retry 경계, delta 필터 |
+| `tests/test_sqlite_store.py` | 문서 버전과 캐시 DB의 실제 SQL 동작 |
+| `tests/test_chroma_store.py` | 실제 Chroma replace/query와 cosine score |
 
-자세한 내용은 [PRD](./docs/PRD.md)를 참고하세요.
+프로덕션 경계를 실제 구독으로 확인하려면 다음을 별도로 실행합니다. 실제 Uvicorn
+소켓에 문서를 업로드하고 FastEmbed·Chroma·Codex를 거친 HTTP SSE를 검사합니다.
+이 명령은 모델 다운로드와 Codex 사용량을 발생시킵니다.
+
+```bash
+uv run python scripts/live_smoke.py
+```
+
+## 설정
+
+모든 환경 변수는 `OFFICEAGENT_` 접두사를 씁니다.
+
+| 변수 | 기본값 |
+|---|---|
+| `OFFICEAGENT_DATA_DIR` | `.data` |
+| `OFFICEAGENT_CHUNK_SIZE` / `OFFICEAGENT_CHUNK_OVERLAP` | `900` / `150` 문자 |
+| `OFFICEAGENT_RETRIEVAL_LIMIT` | `5` |
+| `OFFICEAGENT_MINIMUM_RELEVANCE_SCORE` | `0.30` |
+| `OFFICEAGENT_CACHE_SIMILARITY_THRESHOLD` | `0.95` |
+| `OFFICEAGENT_CODEX_FIRST_DELTA_TIMEOUT_SECONDS` | `45` |
+| `OFFICEAGENT_CODEX_OVERALL_TIMEOUT_SECONDS` | `120` |
+| `OFFICEAGENT_CODEX_MAX_CONCURRENT_REQUESTS` | `2` |
+
+런타임 데이터는 `.data/`의 SQLite와 Chroma에 영속화되며 Git에는 포함되지
+않습니다.
+
+## 설계 및 평가 근거
+
+- [ARCHITECTURE.md](./ARCHITECTURE.md): 전체 흐름, 경계, 실패·trade-off
+- [PROMPT_DESIGN.md](./PROMPT_DESIGN.md): 근거 제한과 프롬프트 인젝션 대응
+- [요구사항 추적표](./docs/REQUIREMENTS_TRACEABILITY.md): PRD → 코드 → 테스트
+- [Repository Map](./docs/REPOSITORY_MAP.md): 모든 파일의 MECE 책임·생성 주체
+- [ADR](./docs/adr/): 구조·저장소·Codex 계약의 Why–What–How
+- [Decision Log](./docs/DECISION_LOG.md): 짧은 기술 선택과 검증 상태
+- [Retros](./retros/): AI 협업 과정과 전환 기록
+- [원본 PRD](./docs/PRD.md)
+
+현재 한계는 스캔 PDF OCR 미지원, 단일 노드 로컬 저장소, 고정 문자 청킹입니다.
+구현하지 않은 기능을 문서에서 구현 완료로 표시하지 않습니다.

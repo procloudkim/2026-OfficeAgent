@@ -37,7 +37,7 @@ dev = [
 packages = ["src/officeagent"]
 
 [tool.pytest.ini_options]
-addopts = "-ra"
+addopts = "-ra -p no:cacheprovider"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 

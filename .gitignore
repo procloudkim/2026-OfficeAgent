@@ -7,6 +7,8 @@ build/
 .venv/
 venv/
 .pytest_cache/
+.pytest-tmp*/
+.test-data/
 .ruff_cache/
 .coverage
 htmlcov/

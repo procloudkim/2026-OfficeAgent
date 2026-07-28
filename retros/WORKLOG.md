@@ -76,3 +76,61 @@
 ### 다음 확인
 
 - 변경된 커밋을 push하고 원격 `main`과 로컬 `main`의 SHA가 일치하는지 확인한다.
+
+## 2026-07-28 — 평가 경로 중심의 수직 구현
+
+### 목표
+
+- PDF/TXT 업로드부터 실제 vector 검색, Codex 답변, 출처, cache까지 하나의
+  수직 경로로 구현한다.
+- ingestion·retrieval·cache invalidation 필수 테스트와 SSE/protocol 테스트를
+  구독 없이 실행한다.
+- 기술 선택을 ADR과 Why–What–How decision log로 남기고 문서와 코드를 맞춘다.
+
+### 선택과 trade-off
+
+- 문서 metadata와 answer cache dependency는 SQLite, 청크 vector는 Chroma로
+  분리했다. 저장소가 둘이 되지만 관계형 무효화와 vector 검색을 각각 실제
+  adapter test로 검증할 수 있다.
+- 운영 embedding은 한국어를 지원하는 FastEmbed 다국어 MiniLM 384차원,
+  테스트는 결정론적 keyword vector를 사용한다. 모델 의미 품질과 코드 회귀
+  증거를 분리했다.
+- Docker 안으로 host Codex credential을 전달하는 비표준 절차 대신 PRD가 허용한
+  `uv run officeagent`를 한 줄 실행으로 택했다.
+- citation은 모델 출력에서 파싱하지 않고 검색된 chunk metadata로 서버가 만든다.
+  표현 자유는 줄지만 허위 출처를 구조적으로 막는다.
+
+### 문제와 전환
+
+- `uv run pytest`에서는 `tests.helpers`가 import되지 않았지만 직접 venv 실행은
+  통과했다. 실제 README 명령을 기준으로 `tests/__init__.py`를 추가했고 최종
+  명령을 다시 검증했다.
+- 첫 FastEmbed live run은 sandbox network 차단으로 실패해 네트워크 허용
+  경계에서 모델을 내려받았다.
+- 첫 Codex live run은
+  `thread/start.environments requires experimentalApi capability`로 실패했다.
+  initialize capability를 명시하고 empty environment/dynamic tool 계약을
+  적용했다.
+- 초기 live smoke는 service generator만 소비해 HTTP flush 증거가 약했다.
+  실제 Uvicorn socket에 upload와 SSE 질의를 보내는 방식으로 교체했다.
+- 적대적 검토에서 빈 delta의 retry 경계, repository cwd 노출, 무제한 process/
+  notification queue를 발견했다. 빈 delta 무시, 전용 빈 cwd, tool item 차단,
+  동시 process 2개, queue 100개 제한으로 보강했다.
+- SQLite foreign key 설정이 connection-scoped임을 확인해 모든 연결에서
+  `PRAGMA foreign_keys=ON`을 적용하고 무결성 회귀 테스트를 추가했다.
+
+### 검증
+
+- `uv run pytest -q`: 20 passed.
+- Ruff: source/tests/scripts 전체 통과.
+- `uv run officeagent`: 실제 application startup 후 `/health/live` HTTP 200,
+  정상 shutdown.
+- 실제 FastEmbed + Chroma + Codex CLI 0.145.0 + Uvicorn HTTP SSE:
+  cache miss, 최종 재검증 delta 17개, 첫 delta가 completed보다 먼저 관찰됨,
+  `company-policy.txt` citation 확인.
+- 상세 최소 영수증은 `docs/verification/2026-07-28.md`에 기록했다.
+
+### 다음 확인
+
+- 최종 diff·문서 링크·PRD 추적표를 다시 대조한다.
+- Retrobot 회고가 생성되는 milestone commit을 만들고 같은 날 원격에 push한다.

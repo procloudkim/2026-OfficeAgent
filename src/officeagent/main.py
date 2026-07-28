@@ -3,21 +3,10 @@
 from __future__ import annotations
 
 import uvicorn
-from fastapi import FastAPI
 
-app = FastAPI(
-    title="OfficeAgent Document Q&A API",
-    version="0.1.0",
-    description="Document-grounded question answering with verifiable citations.",
-)
+from officeagent.api.app import create_app
 
-
-@app.get("/health/live", tags=["health"])
-async def liveness() -> dict[str, str]:
-    """Return process liveness without touching external dependencies."""
-
-    return {"status": "ok"}
-
+app = create_app()
 
 def run() -> None:
     """Run the development server through the project console script."""
