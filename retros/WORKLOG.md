@@ -33,3 +33,26 @@
 - `uv lock`과 구독 없는 health 테스트를 통과시킨다.
 - Retrobot 훅이 Windows Git 환경에서 실제 회고 커밋을 만드는지 확인한다.
 - ingestion, retrieval, 캐시 무효화의 실패하는 테스트부터 작성한다.
+
+## 2026-07-28 — Retrobot 활성화 검증
+
+### 확인한 사실
+
+- 공식 `retrobot/README.md`와 `retrobot/SKILL.md`를 다시 확인했다.
+- 로컬 Git 설정은 `core.hooksPath=.githooks`이며, 훅 파일은 실행 모드로 추적된다.
+- Git for Windows의 셸에서 `git`, `date`, `codex` 명령을 모두 찾았다.
+- 일반 커밋 `bee1fd3` 뒤 회고 `b7b2b70`이 자동 생성됐고, 회고 커밋에서는
+  재귀 실행이 멈췄다.
+- `uv run pytest` 결과 health 테스트 1개가 통과했다.
+
+### 문제와 수정
+
+- 재귀 방지 조건 `*Retrobot*`이 자동 회고뿐 아니라 제목에 Retrobot이 들어간 일반
+  커밋까지 건너뛰었다. 자동 생성 커밋의 정확한 제목만 제외하도록 범위를 좁혔다.
+- Windows Git Bash에서는 `TZ=Asia/Seoul`이 UTC로 처리되어 파일명과 타임라인이
+  9시간 어긋났다. POSIX 시간대 문자열 `TZ=KST-9`로 교체하고 기존 기록을 정정했다.
+
+### 남은 위험
+
+- 현재 자동화 테스트는 health 경로만 덮는다.
+- ingestion, retrieval, 캐시 무효화 테스트와 실제 애플리케이션 구현은 아직 없다.

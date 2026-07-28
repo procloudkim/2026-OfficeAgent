@@ -20,7 +20,7 @@ if ! command -v codex >/dev/null 2>&1; then
     exit 0
 fi
 
-STAMP=$(TZ=Asia/Seoul date "+%Y-%m-%d_%H%M%S")
+STAMP=$(TZ=KST-9 date "+%Y-%m-%d_%H%M%S")
 RETRO_PATH="retros/${STAMP}_retro.md"
 TEMP_PATH="${RETRO_PATH}.tmp"
 TIMELINE_PATH="retros/TIMELINE.md"
