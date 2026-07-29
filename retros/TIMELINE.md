@@ -7,3 +7,4 @@
 | 2026-07-28_162923 | [2026-07-28_162923_retro.md](./2026-07-28_162923_retro.md) | docs: record Retrobot setup verification |
 | 2026-07-28_172705 | [2026-07-28_172705_retro.md](./2026-07-28_172705_retro.md) | feat: implement grounded document Q&A pipeline |
 | 2026-07-29_012229 | [2026-07-29_012229_retro.md](./2026-07-29_012229_retro.md) | fix(cache): close failed-ingestion invalidation gaps |
+| 2026-07-30_001916 | [2026-07-30_001916_retro.md](./2026-07-30_001916_retro.md) | docs(retro): add applicant review for 2026-07-28 work |
