@@ -1,110 +1,109 @@
 # 템플릿 리포지토리 가이드
 
-이 문서는 이 템플릿 리포지토리에 포함된 구성 요소와 설정을 설명합니다.
+이 문서는 최초 template에서 이어받은 구성 요소와 현재 제출 저장소에서 유효한
+운영 경계를 구분합니다. 과제 요구의 source of truth는 `docs/PRD.md`, 시작·실행
+절차는 현재 `README.md`와 `CLAUDE.md`, 실제 동작은 code와 test입니다.
 
-> **역사적 upstream reference 경계:** 아래 내용은 최초 template의 구성과
-> 의도를 보존한 설명이며 현재 제출 구현이나 Retrobot 동작의 source of truth가
-> 아닙니다. 현재 구조는 `docs/REPOSITORY_MAP.md`, 제품 동작은 실제 코드·테스트와
-> `ARCHITECTURE.md`, 요구 계약은 `docs/PRD.md`를 따릅니다.
->
-> 현재 Retrobot은 활성화된 post-commit hook의 `codex exec` 경로만 지원하고
-> 최신 commit 정보와 선택적 `retros/WORKLOG.md`만 입력으로 사용합니다. Claude
-> fallback이나 전역 Codex/Claude 로그 분석은 구현되어 있지 않습니다. 정확한
-> skip 조건과 자동 commit 경계는 `CLAUDE.md`, `retrobot/README.md`,
-> `.githooks/post-commit`을 따르며, 아래 Retrobot 절은 초기 template 설명으로만
-> 읽습니다.
+> 최초 template에는 Claude fallback, 전역 Claude/Codex log 분석, 넓은 Retrobot
+> skip 조건, 제출 시점 collaborator 초대 설명이 있었습니다. 현재 구현·공식
+> PRD/README와 충돌하므로 실행 절차로 사용하지 않습니다. 이 문서는 그 낡은
+> 절차를 반복하지 않고 현재 유효한 경계만 적습니다.
 
-## 디렉토리 구조
+## 디렉터리 구조
 
-```
+```text
 .
-├── README.md                  # 프로젝트 시작 가이드
-├── CLAUDE.md                  # AI 에이전트(Claude Code) 지침
-├── AGENTS.md → CLAUDE.md      # CLAUDE.md 심볼릭 링크
-├── .githooks/                 # Git hook 디렉토리
+├── README.md                  # 현재 실행·검증 가이드
+├── CLAUDE.md                  # AI agent 공통 과제 지침
+├── AGENTS.md → CLAUDE.md      # Git object mode 120000 symlink
+├── .githooks/post-commit      # 현재 Retrobot 자동 실행 경로
 ├── docs/
-│   ├── PRD.md                 # 과제 명세서
-│   └── TEMPLATE_GUIDE.md      # 이 문서
-├── sample-docs/               # 테스트용 샘플 문서
-│   ├── company-policy.txt     # 사내 복리후생 안내
-│   └── development-guide.md   # 개발 가이드
-├── retrobot/                  # 자동 회고 시스템
-│   ├── SKILL.md               # AI 에이전트용 회고 생성 지침
-│   └── README.md              # Retrobot 사용법
-└── .githooks/
-    └── post-commit            # 커밋 후 자동 회고 훅
+│   ├── PRD.md                 # 과제 요구 정본
+│   └── TEMPLATE_GUIDE.md      # template/current 경계 설명
+├── sample-docs/               # manual/live smoke fixture
+├── retrobot/
+│   ├── SKILL.md               # bounded KPT 생성 계약
+│   └── README.md              # 현재 사용법
+└── retros/                    # 회고·타임라인·작업 로그
 ```
 
-## 구성 요소 설명
+Windows에서 `core.symlinks=false`이면 `AGENTS.md`가 `CLAUDE.md`라는 9-byte 일반
+파일처럼 materialize될 수 있습니다. repository object는 다음 명령으로 mode
+`120000`인지 확인합니다.
+
+```bash
+git ls-files -s AGENTS.md
+```
+
+standalone zip/copy에서 보인 9-byte 파일만으로 Git symlink 자체가 잘못됐다고
+판정하지 않습니다. 반대로 Windows tool이 symlink를 따라야 한다면 해당 client의
+symlink 지원 여부는 별도로 확인해야 합니다.
+
+## 구성 요소
 
 ### 1. 과제 명세 (`docs/PRD.md`)
 
-채용 과제의 요구사항, 기술 조건, 평가 기준, 제출 방법을 정의합니다.
+문서 수집, RAG 질의응답, LLM cache, prompt 설계, 평가 기준과 제출 방법을
+정의합니다. 구현·문서 주장이 충돌하면 PRD 요구와 실제 code/test를 먼저
+대조합니다.
 
-- 핵심 요구사항: 문서 수집, 질의응답(RAG), LLM 캐싱, 프롬프트 설계
-- 언어/프레임워크 자유 선택
-- LLM은 Claude Code SDK 또는 Codex CLI 사용 (구독 기반, API 키 불필요)
+### 2. Agent 지침 (`CLAUDE.md` / `AGENTS.md`)
 
-### 2. AI 에이전트 지침 (`CLAUDE.md` / `AGENTS.md`)
+과제 시작 절차, 필수 산출물, 평가 비중, 현재 Retrobot 경계를 agent가 읽도록
+합니다. `AGENTS.md`는 repository에서 `CLAUDE.md`를 가리키는 symlink입니다.
 
-Claude Code 또는 Codex로 과제를 진행할 때, 에이전트가 프로젝트 맥락을 이해하도록 돕는 지침 파일입니다.
+### 3. Sample 문서 (`sample-docs/`)
 
-- 과제 개요 및 핵심 요구사항 요약
-- 기술 조건 및 필수 산출물 안내
-- Retrobot 설정 방법
-- 평가 비중 정보
+| 파일 | 용도 |
+|---|---|
+| `company-policy.txt` | 교육비·근무·휴가 등 manual/live fixture |
+| `development-guide.md` | review·branch·deploy·incident fixture |
 
-`AGENTS.md`는 `CLAUDE.md`의 심볼릭 링크로, Codex 등 다른 에이전트도 동일한 지침을 읽을 수 있습니다.
+이 fixture는 deterministic regression 예시이지 실제 한국어 semantic retrieval
+품질을 대표하는 gold dataset이 아닙니다.
 
-### 3. 샘플 문서 (`sample-docs/`)
+### 4. Retrobot (`retrobot/`)
 
-과제 구현 시 테스트에 활용할 수 있는 예시 문서입니다.
+현재 지원되는 동작은 다음 하나입니다.
 
-| 파일 | 내용 |
-|------|------|
-| `company-policy.txt` | 교육비 지원, 재택근무, 연차 휴가, 건강검진, 경조사 지원 등 |
-| `development-guide.md` | 코드 리뷰 정책, 브랜치 전략, 배포 프로세스, 장애 대응 등 |
+1. 지원자가 일반 `git commit`을 완료합니다.
+2. `.githooks/post-commit`이 `codex exec`를 실행합니다.
+3. prompt payload는 `retrobot/SKILL.md`, 최신 `git show`, 선택적
+   `retros/WORKLOG.md`로 제한됩니다. 전역 `~/.codex`·`~/.claude` log는 payload로
+   전달하지 않습니다. read-only는 repository read-isolation 보장이 아닙니다.
+4. 성공한 Markdown과 `retros/TIMELINE.md` 두 path만
+   `docs(retro): 자동 회고 생성 by Retrobot` 제목으로 자동 commit합니다.
+5. hook은 그 정확한 자동 제목, `RETROBOT_SKIP=1`, skill/CLI 부재 또는 생성
+   실패에서 종료합니다. Claude fallback과 별도 수동 실행은 없습니다.
+6. hook은 push하지 않습니다. 사용자가 제품 commit과 자동 회고 commit을
+   원격에 push해야 evaluator가 볼 수 있습니다.
 
-### 4. Retrobot — 자동 회고 (`retrobot/`)
+정본은 `.githooks/post-commit`, `retrobot/SKILL.md`, `retrobot/README.md`입니다.
 
-AI 에이전트의 작업 로그를 분석하여 KPT(Keep/Problem/Try) 회고를 자동 생성하는 시스템입니다.
+### 5. Git hook 설정
 
-**동작 흐름:**
-1. 지원자가 `git commit` 실행
-2. `.githooks/post-commit` 훅이 트리거
-3. 훅이 `claude` 또는 `codex` CLI를 호출하며 `retrobot/SKILL.md` 지침을 전달
-4. 에이전트가 `~/.claude/projects/` (또는 `~/.codex/`) 로그를 분석
-5. KPT 회고 마크다운을 `retros/`에 생성하고 자동 커밋
-
-**무한 루프 방지:** 커밋 메시지에 "Retrobot"이 포함되면 훅이 스킵됩니다.
-
-**커스터마이징:** `retrobot/SKILL.md`를 편집하여 회고 형식을 자유롭게 변경할 수 있습니다.
-
-### 5. Git Hook 설정 (`.githooks/`)
-
-리포지토리에 포함된 `.githooks/` 디렉토리를 git hook 경로로 지정합니다.
+clone마다 local Git config에 hook 경로를 한 번 설정합니다.
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-이 설정은 로컬 git config에 저장되므로, 리포지토리를 클론할 때마다 1회 실행이 필요합니다.
-윈도우/맥/리눅스 모두 동일하게 동작합니다.
+설정 존재와 실제 동작은 다릅니다. 일반 commit 뒤 회고 commit이 한 번 생기고
+그 자동 commit에서 recursion이 멈추는지를 commit history로 확인합니다.
 
-## 시작 순서
+## 현재 시작 순서
 
-```bash
-# 1. 템플릿으로 비공개 리포지토리 생성 (GitHub UI에서)
-
-# 2. 클론
-git clone https://github.com/<your-id>/officeagent-onboarding-challenge.git
-cd officeagent-onboarding-challenge
-
-# 3. Git hook 설정 (Retrobot 활성화)
-git config core.hooksPath .githooks
-
-# 4. 과제 구현 시작
-# ...
-
-# 5. 제출 — serithemage를 Collaborator로 초대
+```text
+1. GitHub에서 private repository 생성
+2. 첫 지원자 commit 전에 serithemage collaborator 초대
+3. clone하고 core.hooksPath=.githooks 설정
+4. 구현한 날마다 일반 commit 수행
+5. 자동 생성 Retrobot 회고를 확인
+6. 일반 commit과 자동 회고 commit을 같은 작업일에 push
+7. README의 제출 절차와 기한을 다시 확인
 ```
+
+초대를 제출 시점으로 미루는 최초 template 순서는 current PRD/README와 충돌해
+기각했습니다. 다만 PRD상 늦은 초대만으로 자동 불이익은 아닙니다. 현재
+collaborator의 수락·접근 상태는 유효한 GitHub 권한으로 직접
+확인하지 않았다면 `UNKNOWN`으로 둡니다.

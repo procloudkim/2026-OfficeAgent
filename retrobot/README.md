@@ -13,12 +13,14 @@ Retrobot은 활성화된 post-commit 훅이 Codex에 제한된 커밋 문맥을 
    `retros/WORKLOG.md`를 전달
 3. 훅은 Codex를 read-only·ephemeral·never-approve 설정으로 실행하고,
    SKILL은 명시적으로 전달된 입력만 근거로 사용하도록 지시
-4. 생성 성공 시 KPT 회고와 `retros/TIMELINE.md`를 갱신하고
+4. 생성 성공 시 방금 만든 KPT 회고와 `retros/TIMELINE.md` 두 path만 stage해
    `docs(retro): 자동 회고 생성 by Retrobot` 메시지로 자동 커밋
 
 훅은 위 자동 회고 커밋, `RETROBOT_SKIP=1`, skill 파일 부재, Codex CLI 부재
 또는 생성 실패 시 회고 생성을 건너뜁니다. Claude fallback은 구현되어 있지
-않으며 훅은 전역 Codex/Claude 로그를 입력으로 제공하지 않습니다.
+않으며 훅은 전역 Codex/Claude 로그를 prompt payload로 제공하지 않습니다.
+다만 read-only sandbox는 repository 파일 read 자체를 OS 수준에서 차단하지
+않으므로, bounded prompt payload를 완전한 read-isolation으로 해석하지 않습니다.
 
 ## 설정
 

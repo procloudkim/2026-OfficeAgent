@@ -164,4 +164,56 @@
 - 지원자가 최종 책임을 지는 `## 직접 보완`만 기존 자동 KPT 아래에 추가했고 원래
   Retrobot 본문은 다시 쓰지 않았다.
 - 7월 28일 snapshot의 cold review와 2026-07-29 공식 자료 fact check를 수행했다.
-  현재 수정·검증 결과는 다음 7월 29일 작업 묶음에서 별도로 기록한다.
+  현재 수정·검증 결과는 다음 7월 30일 구현·검토 묶음에서 별도로 기록한다.
+
+## 2026-07-30 — 구현·문서 최종 검토와 Retrobot 경계 보강
+
+### 목표
+
+- 7월 29일 cache 보완 이후의 code와 모든 Markdown을 cold review·fact check한다.
+- 지원자가 면접에서 설명할 수 있도록 과장된 evidence 의미와 backend 경계를
+  바로잡는다.
+- 현재 작업을 code·test·문서·회고가 함께 있는 한 개의 MECE 묶음으로 검증한다.
+
+### Cold review에서 발견하고 고친 것
+
+- 모든 relevance threshold 통과 hit가 citation이 되고 `grounded=true`가 되는
+  현재 구현은 retrieval provenance를 제공하지만 answer-level entailment나 model이
+  각 chunk를 사용했다는 보장은 아니다. README, Architecture, Prompt Design,
+  traceability와 decision log에서 이 의미를 명시했다.
+- client-controlled filename이 XML-like prompt attribute를 닫을 수 있어 metadata를
+  `html.escape(..., quote=True)`로 escape하고 회귀 테스트를 추가했다. document body의
+  의미적 prompt injection 안전성을 증명한 것은 아니다.
+- Retrobot hook의 `git add retros/`는 다른 unstaged/modified 회고까지 자동 commit할
+  수 있었다. 방금 생성한 회고와 timeline 두 explicit path만 stage·commit하도록
+  좁히고 구조 테스트와 Git Bash `sh -n` 구문 검사를 통과시켰다.
+- Retrobot의 bounded 범위는 prompt payload이고 read-only sandbox는 repository read를
+  OS 수준에서 차단하지 않는다. App Server의 `.data/codex-workspace`도 실행마다
+  자동으로 비우지 않으므로 secret을 두지 않는다고 문서를 정정했다.
+- `CREATED`·`UNCHANGED`는 corpus 전체, `UPDATED`는 dependency cache만 무효화한다.
+  README의 “관련 문서만”이라는 넓은 표현을 이 실제 policy로 교정했다.
+
+### 검증과 증거 경계
+
+- `.venv/Scripts/python.exe -m pytest tests -p no:cacheprovider -q` → `27 passed`.
+- `.venv/Scripts/ruff.exe check --no-cache .` → PASS.
+- workspace-local 임시 `UV_CACHE_DIR`에서 `uv lock --check` → PASS, lock 변경 없음.
+- Git Bash `sh -n .githooks/post-commit`과 Markdown 상대 link 25개 파일 점검 → PASS.
+- 일반 commit `251bf3c` 뒤 Retrobot이 `0548cec`를 자동 생성했고, 해당 auto
+  commit에는 새 회고와 timeline 두 file만 포함됐다. 남은 dirty 변경은 섞이지
+  않았고 push 뒤 origin/main과 local HEAD가 `0548cec`로 일치했다.
+- 7월 28일·29일 complete snapshot Shower와 최종 16-file delta Shower를 수행했고,
+  마지막 delta verdict는 PASS였다.
+- App Server, Git post-commit, SQLite FK, Chroma cosine, FastEmbed model, FastAPI SSE,
+  POSIX `TZ=KST-9` 설명을 official source와 현재 code 양방향으로 fact check했다.
+- 최신 FastEmbed/Codex/Uvicorn live smoke는 다시 실행하지 않았다. 실제 17-delta
+  영수증은 `e838cc7`의 역사적 증거로만 유지한다.
+
+### 남은 한계와 AI 보조
+
+- SQLite–Chroma cross-store 원자성, Chroma delete→upsert partial failure,
+  ingest/query race, identical miss single-flight, 실제 한국어 검색 품질, citation
+  entailment는 해결·검증하지 않았다.
+- Codex가 cold review orchestration, defect 분석, code/test/doc 초안과 fact check를
+  보조했다. 지원자는 면접용 local 학습서로 각 owner 함수·입력·출력·실패 경계를
+  다시 공부하고, 이해하지 못한 결정을 독자적으로 내렸다고 주장하지 않는다.

@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| Status | Accepted — working-tree implementation tested; final receipt pending |
+| Status | Accepted — source baseline `0565fa5` offline verified; live smoke historic at `e838cc7` |
 | Date | 2026-07-29 |
 
 ## Why
@@ -48,7 +48,8 @@ SQLite와 Chroma 두 저장소를 운영해야 하지만, 메타데이터/캐시
 각각 단순하게 검증할 수 있다. 두 저장소 사이의 분산 트랜잭션은 없고 Chroma의
 문서 교체도 delete와 upsert가 원자적이지 않다. 실패 창에는 이전, 부분 또는 빈
 vector 상태가 노출될 수 있으며, 무효화와 vector 교체 사이의 동시 질의가 cache를
-다시 만드는 race도 남는다.
+다시 만드는 race도 남는다. 동일 질문의 동시 cache miss를 합치는 single-flight도
+없어 Codex 중복 호출과 경쟁 cache write가 가능하다.
 
 모든 `UNCHANGED`에서 corpus 전체를 무효화하므로 정상 same-hash 재업로드에서도
 관련 없는 cache까지 비운다. 이는 readiness/보상 API를 새로 도입하지 않고
@@ -67,10 +68,13 @@ document/version vector가 일부 존재한다는 사실만으로 delete→upser
 - 구현: `infrastructure/sqlite_store.py`, `chroma_store.py`,
   `embeddings.py`.
 - 자동화: 실제 SQLite/Chroma를 쓰는 `test_sqlite_store.py`,
-  `test_chroma_store.py`, `test_cache_invalidation.py`. 현재 working tree의
-  embedding failure와 vector-store 경계 failure를 주입한 `CREATED`
-  failure-window retry, 정상 same-hash 정책을 포함한 offline suite 25개가
-  통과했다. Chroma 내부 delete→upsert 중간 실패를 직접 주입한 증거는 아니다.
-- 증거 경계: 이번 변경은 아직 commit·영구 receipt·live smoke가 없으므로
-  `VERIFIED`로 승격하지 않는다. 2026-07-28 live smoke는 이전 baseline에서
-  FastEmbed와 Chroma 경계만 확인한 역사적 증거다.
+  `test_chroma_store.py`, `test_cache_invalidation.py`. Cache remediation source
+  baseline `0565fa5`와 같은 source tree에서 embedding failure와 vector-store
+  경계 failure를 주입한 `CREATED` failure-window retry, 정상 same-hash 정책을
+  포함한 offline suite 25개가 통과했다. Chroma 내부 delete→upsert 중간 실패를
+  직접 주입한 증거는 아니다.
+- 증거 경계: 이 offline suite는 구현과 순차 failure/retry 경로를 검증한다.
+  SQLite/Chroma cross-store 원자성, concurrent recache와 Chroma 내부
+  partial-upsert는 검증하지 않는다. 2026-07-28 `e838cc7` live smoke는 Uvicorn
+  upload → FastEmbed → Chroma → Codex App Server → SSE 경로를 확인한 역사적
+  증거이며 이후 source에서 재실행하지 않았다.

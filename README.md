@@ -58,9 +58,14 @@ SSE 이벤트 순서는 다음과 같습니다.
 ```text
 answer.started
 answer.delta       # Codex App Server가 보낸 실제 delta, 1회 이상
-answer.citation    # 검색 결과로 서버가 만든 검증 가능한 출처
+answer.citation    # score gate를 통과한 검색 청크의 서버 생성 출처
 answer.completed
 ```
+
+`answer.citation`은 실제 검색 청크의 provenance를 보존하지만, 모델이 반환된 모든
+청크를 답변에 실제 사용했는지까지 검증하지는 않습니다. `grounded=true`도 현재는
+근거 후보가 prompt에 제공되고 turn이 완료됐다는 뜻이며 answer-level entailment
+판정은 아닙니다.
 
 스트림 시작 후 실패는 HTTP 상태를 바꿀 수 없으므로 `answer.error` 이벤트로
 전달합니다. 모든 이벤트에는 같은 `request_id`가 포함되며, 시작·완료 이벤트에서
@@ -88,9 +93,11 @@ README 한 줄 실행을 사용해 재현성을 높였습니다.
 |---|---|
 | `tests/test_ingestion.py` | multipart 업로드 → TXT/PDF 추출 → SQLite·Chroma 저장 |
 | `tests/test_retrieval.py` | 기대 문서 상위 검색, 출처, 근거 없음 시 LLM 미호출 |
-| `tests/test_cache_invalidation.py` | exact/similar hit, 관련 문서만 실제 무효화 |
+| `tests/test_cache_invalidation.py` | exact/similar hit, UPDATED dependency·CREATED/UNCHANGED 전체 무효화 |
 | `tests/test_streaming.py` | 두 fake gateway delta의 SSE 전달 순서, 출처, cache metadata |
 | `tests/test_codex_protocol.py` | JSON-RPC 순서, timeout, retry 경계, delta 필터 |
+| `tests/test_prompts.py` | client-controlled filename metadata의 prompt attribute 경계 |
+| `tests/test_retrobot_hook.py` | 자동 회고의 generated-file-only stage·commit path |
 | `tests/test_sqlite_store.py` | 문서 버전과 캐시 DB의 실제 SQL 동작 |
 | `tests/test_chroma_store.py` | 실제 Chroma replace/query와 cosine score |
 
@@ -123,7 +130,7 @@ uv run python scripts/live_smoke.py
 ## 설계 및 평가 근거
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md): 전체 흐름, 경계, 실패·trade-off
-- [PROMPT_DESIGN.md](./PROMPT_DESIGN.md): 근거 제한과 프롬프트 인젝션 대응
+- [PROMPT_DESIGN.md](./PROMPT_DESIGN.md): 근거 제한과 프롬프트 인젝션 완화 경계
 - [요구사항 추적표](./docs/REQUIREMENTS_TRACEABILITY.md): PRD → 코드 → 테스트
 - [Repository Map](./docs/REPOSITORY_MAP.md): 모든 파일의 MECE 책임·생성 주체
 - [ADR](./docs/adr/): 구조·저장소·Codex 계약의 Why–What–How
@@ -132,4 +139,6 @@ uv run python scripts/live_smoke.py
 - [원본 PRD](./docs/PRD.md)
 
 현재 한계는 스캔 PDF OCR 미지원, 단일 노드 로컬 저장소, 고정 문자 청킹입니다.
+SQLite–Chroma cross-store 원자성, ingest/query 동시성, 동일 질문 cache miss의
+single-flight, citation과 생성 문장 사이의 의미 검증도 구현하지 않았습니다.
 구현하지 않은 기능을 문서에서 구현 완료로 표시하지 않습니다.

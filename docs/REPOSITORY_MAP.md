@@ -62,6 +62,8 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `tests/test_cache_invalidation.py` | exact/similar and dependency invalidation |
 | `tests/test_streaming.py` | SSE sequence/cache/input validation |
 | `tests/test_codex_protocol.py` | App Server protocol/retry/tool boundary |
+| `tests/test_prompts.py` | client-controlled prompt metadata attribute boundary |
+| `tests/test_retrobot_hook.py` | generated-retro explicit stage/commit path contract |
 | `tests/test_sqlite_store.py` | version/cache/FK integrity |
 | `tests/test_chroma_store.py` | replace/search cosine behavior |
 | `tests/test_parsers_and_chunking.py` | formats, offsets, stable chunks |

@@ -70,6 +70,14 @@ printf "| %s | [%s](./%s) | %s |\n" \
     "$(basename "$RETRO_PATH")" \
     "$SUBJECT" >>"$TIMELINE_PATH"
 
-git add retros/
-git commit -m "docs(retro): 자동 회고 생성 by Retrobot" --no-verify
-echo "✅ Retrobot: ${RETRO_PATH} 생성 및 커밋 완료"
+if ! git add -- "$RETRO_PATH" "$TIMELINE_PATH"; then
+    echo "ℹ Retrobot: 생성 파일 stage에 실패했습니다."
+    exit 0
+fi
+
+if git commit -m "docs(retro): 자동 회고 생성 by Retrobot" \
+    --no-verify -- "$RETRO_PATH" "$TIMELINE_PATH"; then
+    echo "✅ Retrobot: ${RETRO_PATH} 생성 및 커밋 완료"
+else
+    echo "ℹ Retrobot: 자동 회고 commit에 실패했습니다."
+fi

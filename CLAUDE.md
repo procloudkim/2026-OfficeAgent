@@ -10,7 +10,7 @@ OfficeAgent BE 채용 과제 — Document Q&A API. 문서를 업로드하면 내
 
 ## 과제 진행 규칙 (먼저 확인)
 
-- **과제 시작 = `serithemage` Collaborator 초대**. Private 리포라 초대 전에는 평가자가 리포의 존재도 착수 시점도 확인할 수 없습니다. 첫 커밋 전에 보낼 것.
+- **과제 시작 = `serithemage` Collaborator 초대**. Private 리포라 초대 전에는 평가자가 리포의 존재도 착수 시점도 확인할 수 없습니다. 첫 커밋 전에 보낼 것. 다만 PRD상 늦은 초대만으로 불이익은 아니며, 미초대 과제는 평가 대상이 아닙니다.
 - **168시간 창**: 첫 커밋으로부터 168시간(=24h × 7일) 이내의 커밋만 평가 대상. 창 밖 커밋은 채점에서 제외되며 README 정리·오탈자 수정도 예외가 없습니다. 판정은 `git log`의 committer date 기준.
 - **하드 마감**: 2026년 8월 9일 (일) 23:59 KST.
 - **작업한 날은 하루 1회 이상 커밋·push**. Retrobot이 커밋 시점의 작업 로그로 회고를 만들므로, 며칠 치를 한 번에 커밋하면 과정이 기록되지 않습니다. 미완성 상태의 커밋도 괜찮습니다.
@@ -62,9 +62,10 @@ OfficeAgent BE 채용 과제 — Document Q&A API. 문서를 업로드하면 내
   선택적 `retros/WORKLOG.md`만 전달하여 KPT 회고 자동 생성
 - 자동 회고 커밋 메시지가 정확히 `docs(retro): 자동 회고 생성 by Retrobot`이거나
   `RETROBOT_SKIP=1`, skill/Codex 부재, 생성 실패이면 훅 스킵
-- Claude fallback은 구현되어 있지 않으며 훅은 전역 Codex/Claude 로그를 입력으로
-  제공하지 않음. SKILL은 명시적으로 전달된 입력만 근거로 사용하도록 제한
-- 성공한 회고는 `retros/`와 `retros/TIMELINE.md`에 저장되고 자동 커밋됨
+- Claude fallback은 구현되어 있지 않으며 prompt payload로 전역 Codex/Claude
+  로그를 제공하지 않음. SKILL은 명시 입력만 근거로 쓰도록 지시하지만 read-only
+  sandbox는 repository read를 OS 수준에서 차단하는 privacy boundary가 아님
+- 성공한 회고와 `retros/TIMELINE.md`만 explicit pathspec으로 stage·자동 커밋됨
 - 과제 구현과는 별개의 도구
 
 ### 설정

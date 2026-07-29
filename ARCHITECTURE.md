@@ -95,13 +95,18 @@ commit되며 cache 무효화도 embedding/vector보다 먼저 수행됩니다. �
 5. 근거가 있으면 문서 청크를 untrusted evidence로 감싼 prompt를 Codex에 보냅니다.
 6. App Server의 실제 `item/agentMessage/delta`를 즉시
    `answer.delta` SSE로 전달합니다.
-7. 출처는 LLM 문자열을 믿지 않고 검색된 `Chunk`에서 서버가 결정론적으로
-   생성합니다.
-8. 완성된 grounded answer와 citation document dependency만 SQLite에 저장합니다.
+7. 출처는 LLM 문자열을 믿지 않고 score gate를 통과한 검색 `Chunk`에서 서버가
+   결정론적으로 생성합니다.
+8. 완성 answer와 검색 citation의 document dependency를 SQLite에 저장합니다.
 
 cache hit는 저장된 답변을 80자 단위로 replay하며 `cache_hit=true`와
 `cache_match=exact|similar`를 표시합니다. 이는 live model delta로 가장하지
 않습니다. 근거 없음 답변은 향후 corpus 변경 영향을 받으므로 캐시하지 않습니다.
+
+현재 citation은 검색 provenance입니다. threshold를 통과한 모든 hit가 citation이
+되며, 모델이 각 hit를 실제 답변 근거로 사용했는지 확인하는 post-generation
+검증은 없습니다. 따라서 `grounded=true`는 근거 후보가 prompt에 공급되고 turn이
+완료됐다는 구현 상태이며, 각 citation의 answer-level entailment를 뜻하지 않습니다.
 
 ## 5. Codex App Server 통합
 
@@ -109,14 +114,16 @@ cache hit는 저장된 답변을 80자 단위로 replay하며 `cache_hit=true`�
 실행합니다.
 
 1. `initialize(clientInfo)` 응답 후 `initialized` notification
-2. `thread/start`: 전용 빈 cwd, `ephemeral=true`, `sandbox=read-only`,
+2. `thread/start`: 별도 `.data/codex-workspace` cwd, `ephemeral=true`, `sandbox=read-only`,
    `approvalPolicy=never`, `environments=[]`, `dynamicTools=[]`, tool 금지
    base instruction
 3. `turn/start`: 질문과 evidence를 하나의 text input으로 전송
 4. 같은 thread/turn의 agent-message delta만 전달
 5. 같은 turn의 `turn/completed(status=completed)`에서 종료
 
-initialize/thread timeout은 각각 10초, 첫 delta는 45초, 전체 turn은 120초입니다.
+workspace directory는 실행마다 자동 정리하지 않으므로 영구적인 empty-directory
+보장은 아니며 secret을 두지 않아야 합니다. initialize/thread timeout은 각각
+10초, 첫 delta는 45초, 전체 turn은 120초입니다.
 transport/timeout 실패가 첫 delta 전에 발생했을 때만 새 process로 1회
 재시도합니다. 이미 사용자에게 delta를 보낸 뒤에는 중복 답변과 이중 사용량을
 막기 위해 재시도하지 않습니다. zero-delta 완료와 failed turn은 오류입니다.
@@ -154,8 +161,10 @@ index로 옮기는 것이 다음 단계입니다.
 - 지원하지 않는 형식 415, 너무 큰 업로드 413, 비어 있거나 손상된 문서 422,
   비스트리밍 생성 실패 502로 응답합니다.
 - SSE 시작 후 오류는 `answer.error` 이벤트로 종료합니다.
-- 파일명에서 디렉터리를 제거하고, prompt 내 문서를 untrusted data로 선언합니다.
-  Codex는 application data만 둔 전용 빈 cwd와
+- 파일명에서 디렉터리를 제거하고 client-controlled filename/chunk/page metadata는
+  prompt attribute용으로 escape합니다. 문서 본문은 untrusted data로 선언합니다.
+  이 경계는 prompt injection의 완전 차단이나 의미 안전성 증거는 아닙니다.
+  Codex는 별도 `.data/codex-workspace` cwd와
   ephemeral/read-only/never-approve/empty-environment로 제한하며 tool item을
   탐지하면 실패시킵니다.
 - API 계층이 모든 SSE 이벤트에 `request_id`를 붙여 로그와 응답을 연결합니다.
@@ -182,3 +191,6 @@ FastEmbed와 Codex App Server의 다중 SSE delta와 citation을 확인합니다
   동시 실행되는 질의의 failure-window recache race는 직렬화하지 않습니다.
 - failed-ingest retry의 안전성을 위해 모든 `UNCHANGED` 재업로드에서 corpus
   cache 전체를 무효화하므로 cache 효율보다 보수적입니다.
+- 동일 질문의 동시 cache miss를 single-flight로 합치지 않아 Codex 중복 호출과
+  경쟁 cache write가 가능하며 ingest/query도 직렬화하지 않습니다.
+- citation은 검색 provenance이며 생성 문장에 대한 entailment verifier는 없습니다.

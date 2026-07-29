@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from html import escape
 
 from officeagent.domain.models import SearchHit
 
@@ -12,8 +13,9 @@ def build_grounded_prompt(question: str, hits: Sequence[SearchHit]) -> str:
 
     evidence = "\n\n".join(
         (
-            f"<evidence id=\"{index}\" document=\"{hit.chunk.filename}\" "
-            f"chunk=\"{hit.chunk.id}\" page=\"{hit.chunk.page_number or ''}\">\n"
+            f'<evidence id="{index}" document="{_attribute(hit.chunk.filename)}" '
+            f'chunk="{_attribute(hit.chunk.id)}" '
+            f'page="{_attribute(hit.chunk.page_number or "")}">\n'
             f"{hit.chunk.text}\n"
             "</evidence>"
         )
@@ -36,3 +38,9 @@ Rules:
 {evidence}
 </evidence_set>
 """
+
+
+def _attribute(value: object) -> str:
+    """Keep client-controlled metadata inside its prompt attribute boundary."""
+
+    return escape(str(value), quote=True)
