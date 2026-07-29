@@ -134,3 +134,34 @@
 
 - 최종 diff·문서 링크·PRD 추적표를 다시 대조한다.
 - Retrobot 회고가 생성되는 milestone commit을 만들고 같은 날 원격에 push한다.
+
+## 2026-07-29 — 7월 28일 기록의 지원자 재검토
+
+### 목표
+
+- 7월 28일 자동 회고 4개를 현재 code·Git·공식 문서와 다시 대조한다.
+- 지원자가 직접 이해한 내용과 Codex가 보조한 범위를 회고에 명시한다.
+- 역사적 사실과 이후에 얻은 증거를 섞거나 7월 28일 작업으로 소급하지 않는다.
+
+### 확인과 판단
+
+- 최신 PRD가 요구 정본이고 현재 README/CLAUDE도 첫 지원자 commit 전 evaluator
+  초대를 운영 순서로 둔다. 초대를 제출 때 하라는 과거 template 절차는 기각했다.
+  다만 PRD상 늦은 초대만으로 자동 불이익은 아니며 미초대는 평가 대상이 아니다.
+- 역사적 invitation 생성 시각은 T0 전으로 기록돼 있지만, 현재 collaborator 수락·
+  접근 상태는 유효한 GitHub 인증으로 재확인하지 못해 `UNKNOWN`으로 유지한다.
+- Retrobot은 push가 아니라 post-commit에서 실행되고 정확한 자동 회고 제목으로
+  recursion을 멈춘다. push는 evaluator가 commit을 보게 하는 별도 단계다.
+- 14-delta App Server probe는 통합 경로 선택의 사전 증거이고, OfficeAgent 전체
+  Uvicorn SSE 17-delta 영수증은 뒤의 `e838cc7` 역사적 실행과 구분한다.
+- SQLite는 document metadata·answer cache·dependency, Chroma는 chunk·embedding·
+  retrieval metadata를 소유한다. 당시 구현 속도에 집중해 이 기본 구조를 내 말로
+  설명하지 못한 점을 회고 보완에 솔직히 남겼다.
+
+### AI 보조와 증거 경계
+
+- Codex가 규칙 충돌 조사, code/Git 대조, 문장 초안을 보조했다.
+- 지원자가 최종 책임을 지는 `## 직접 보완`만 기존 자동 KPT 아래에 추가했고 원래
+  Retrobot 본문은 다시 쓰지 않았다.
+- 7월 28일 snapshot의 cold review와 2026-07-29 공식 자료 fact check를 수행했다.
+  현재 수정·검증 결과는 다음 7월 29일 작업 묶음에서 별도로 기록한다.
