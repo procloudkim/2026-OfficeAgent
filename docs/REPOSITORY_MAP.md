@@ -24,11 +24,16 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `ARCHITECTURE.md` | 계층, 데이터 흐름, 실패·보안·trade-off |
 | `PROMPT_DESIGN.md` | grounding·abstention·injection 전략 |
 | `docs/REQUIREMENTS_TRACEABILITY.md` | PRD → 코드 → test/runtime evidence |
+| `docs/PRD_PHASE2.md` | V2 범위·수용 조건 DRAFT |
+| `docs/TRADEOFF_STORAGE_AND_DOCKER.md` | V2 storage/Docker 후보 비교와 선택 근거 DRAFT |
+| `docs/V2_REQUIREMENTS_TRACEABILITY.md` | V2 요구 → 예정 code/test/evidence와 claim 상태 DRAFT |
 | `docs/DECISION_LOG.md` | 짧은 Why–What–How 결정 이력 |
 | `docs/adr/ADR-0001-*.md` | 구조·네이밍 governance |
 | `docs/adr/ADR-0002-*.md` | 저장소·검색·캐시 결정 |
 | `docs/adr/ADR-0003-*.md` | Codex·SSE·retry 결정 |
+| `docs/adr/ADR-0004-*.md` | PostgreSQL+pgvector transactional CorpusStore 제안 DRAFT |
 | `docs/verification/2026-07-28.md` | sanitized command receipt |
+| `docs/verification/2026-07-30-v2-g0.md` | V2 R0/G0 Docker·V1 preflight sanitized receipt |
 
 ## C. 실행 코드
 

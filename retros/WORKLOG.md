@@ -217,3 +217,40 @@
 - Codex가 cold review orchestration, defect 분석, code/test/doc 초안과 fact check를
   보조했다. 지원자는 면접용 local 학습서로 각 owner 함수·입력·출력·실패 경계를
   다시 공부하고, 이해하지 못한 결정을 독자적으로 내렸다고 주장하지 않는다.
+
+## 2026-07-30 — V2 G0 재개와 저장소 전환 설계
+
+### 복구와 기준선 검증
+
+- 제한된 R0 복구 계약으로 실제 Windows 사용자 컨텍스트를 확인했다. Docker
+  Desktop은 이미 running이었고 Engine 29.6.2 `linux/amd64`, context
+  `desktop-linux`, Buildx default/desktop-linux node가 모두 running이었다.
+  따라서 `docker desktop start`는 실행하지 않았다.
+- V1 `main`, local/origin/remote SHA `29a429f`, clean worktree, Retrobot hook과
+  평가 창을 다시 확인했다.
+- CreatorTemp 격리 cwd와 cache/bytecode off 설정에서 V1 27 tests와 Ruff를
+  통과했다. pgvector 0.8.6 PostgreSQL 17 bookworm image의 linux/amd64 manifest도
+  실제 registry에서 확인했다.
+- G0 PASS 뒤에만 `feat/v2-postgres-pgvector-compose` branch를 생성했다.
+
+### 선택과 증거 경계
+
+- V1 SQLite+Chroma는 빠른 초기 구현과 실제 vector/cache 요구를 충족했지만 두
+  store 사이 transaction이 없어 metadata/cache와 vector partial state 및 stale
+  recache 경계가 남는다.
+- Chroma 공식 문서의 PersistentClient production 경계, PostgreSQL transaction/
+  backup/support lifecycle, Docker Compose health dependency를 대조했다.
+- V2는 PostgreSQL 17.10+pgvector 0.8.6 한 DB에서 document, chunk/vector,
+  cache invalidation과 corpus revision을 한 transaction으로 관리하도록 설계했다.
+  Redis, ANN, 전문 vector DB는 측정된 규모·SLA 요구가 없으므로 제외했다.
+- Docker는 DB, migration, offline integration test와 CI만 소유하고 API/Codex는
+  host에 둔다. 이는 성능 우위 주장이 아니라 transaction·backup·health 대상과
+  credential 경계를 줄이는 선택이다.
+- Phase2 PRD, storage/Docker Trade-off, ADR-0004, V2 Traceability는 모두
+  `DRAFT`다. PostgreSQL code/test가 없으므로 구현·검증 완료로 표시하지 않았다.
+
+### 다음 검증
+
+- Digest-pinned Compose, immutable migration runner와 실제 PostgreSQL/pgvector
+  runtime version을 검증한다.
+- 이어서 unified CorpusStore rollback/concurrency test를 먼저 만들고 구현한다.
