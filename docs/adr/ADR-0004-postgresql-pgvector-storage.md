@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| Status | `Proposed — PARTIAL` — G2 infrastructure verified, G3 product composition DRAFT |
+| Status | `PROPOSED` — V2 composition and local Docker `48 passed` exist; current-SHA, remote parity and actual Codex/SSE are pending |
 | Date | 2026-07-30 |
 | Baseline | V1 `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | Target | PostgreSQL 17.10 + pgvector 0.8.6 |
@@ -26,9 +26,10 @@ V2는 PostgreSQL 17.10과 pgvector 0.8.6을 유일한 영속 계층으로 사용
 `MetadataStore`/`VectorStore` 분할 mutation을 하나의 `CorpusStore` 또는
 unit-of-work port로 교체한다.
 
-G2에서는 Compose/schema/migration runner와 격리 DB test까지 구현·검증했다.
-G3 `CorpusStore`와 API composition 전까지 제품 runtime은 V1 SQLite/Chroma다.
-아래 수용 테스트와 current-SHA evidence가 모두 생길 때만 Status를
+G2의 Compose/schema/migration 위에 G3 `CorpusStore`, API composition과 P0
+offline path를 현재 로컬 워크트리에 구현했다. Docker suite `48 passed`는
+dirty-worktree 영수증이며 actual Codex/SSE가 아니다. 아래 수용 테스트와
+current-SHA evidence가 모두 생길 때만 Status를
 `Accepted — VERIFIED`로 전환하고 ADR-0002를 `SUPERSEDED by ADR-0004`로
 표시한다. 그전까지 ADR-0002는 V1 제품 정본이다.
 
@@ -40,8 +41,8 @@ G3 `CorpusStore`와 API composition 전까지 제품 runtime은 V1 SQLite/Chroma
   G2 infrastructure로 채택했다.
 - **How**: checksum ledger, forward-prefix 검사, advisory lock, migration별 rollback,
   database-per-test로 `0001` apply/re-run/drift/history/failure/concurrency를 검증했다.
-- **Trade-off**: Docker와 migration 운영비가 추가되고 HA/PITR와 V2 API composition은
-  아직 제공하지 않는다.
+- **Trade-off**: Docker와 migration 운영비가 추가되고 HA/PITR, clean-clone 및
+  actual Codex/SSE 증거는 아직 제공하지 않는다.
 - **배운 점**: 측정하지 않은 성능 우위보다 진실원천과 failure surface를 줄이는
   선택이 이번 유지보수 경제성의 더 강한 증거다.
 
@@ -78,6 +79,34 @@ Global revision equality를 hit의 두 번째 진실원천으로 사용하지 �
 LLM 실행 중 corpus가 바뀐 경우 completed answer의 cache write를 건너뛰는
 race guard다.
 
+
+## P0 addendum — versioned cache and prompt boundary (PROPOSED)
+
+- `answer_cache`의 `prompt_version`, `embedding_version`, `retrieval_version`은
+  cache identity의 일부다. active exact/similar hit는 세 값이 현재 설정과 모두
+  같을 때만 허용한다. `PROMPT_TEMPLATE_VERSION`의 단일 정본은 `prompts.py`다.
+- question, evidence text와 metadata는 JSON untrusted-data envelope로
+  직렬화했다. delimiter breakout 회귀는 구조적 parse/round-trip을 증명하지만
+  injection 의미 안전성이나 answer entailment를 증명하지 않는다.
+- citation은 server-generated retrieval provenance다. model answer의 문장별 근거
+  검증이나 model-use subset의 verified claim이 아니다.
+- V2 offline integration에서 double은 LLM과 embedding만 허용한다. PostgreSQL,
+  migration, pgvector, parser, HTTP/SSE와 cache transaction은 실제 구현을 쓴다.
+- Compose test container에는 Codex/Node/API key/.codex mount를 넣지 않으며 이
+  경계의 runtime assertion도 G3/G4 evidence에 포함한다.
+- LLM structured output은 별도 spike의 수용 조건, failure modes와 current-SHA
+  evidence 없이는 구현하지 않는다. 그 전에는 text delta와 server-generated
+  provenance를 유지한다.
+
+### P0 pin-point
+
+- **Why**: configuration drift와 delimiter ambiguity가 cache correctness와 prompt
+  boundary를 약화시킬 수 있다.
+- **What**: three-version cache identity와 JSON envelope를 구현했다.
+- **How**: real PostgreSQL integration과 breakout/version-mismatch regression을 로컬 Docker에서 실행했다.
+- **Trade-off**: cache reuse가 감소하고 implementation/test surface가 늘어난다.
+- **배운 점**: schema field 존재는 policy enforcement 증거가 아니며 lookup/write와
+  current-SHA integration을 함께 검증해야 한다.
 ## Retrieval and cache decision
 
 - `vector(384)` exact cosine distance를 사용한다. V1 embedding dimension을

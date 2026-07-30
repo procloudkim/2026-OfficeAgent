@@ -10,6 +10,12 @@ COPY .githooks ./.githooks
 # The lockfile, not an unconstrained resolver, defines the test environment.
 RUN uv sync --frozen --group dev
 
+# The test image must not inherit the host's Codex CLI or Node runtime. This
+# build-time check complements the in-container pytest assertion.
+RUN ! command -v node >/dev/null 2>&1 \
+    && ! command -v codex >/dev/null 2>&1 \
+    && test ! -e /root/.codex
+
 COPY tests ./tests
 
 ENV PATH="/app/.venv/bin:${PATH}"

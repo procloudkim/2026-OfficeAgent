@@ -38,6 +38,9 @@ services:
     environment:
       OFFICEAGENT_DATABASE_URL: postgresql://officeagent:${OFFICEAGENT_POSTGRES_PASSWORD:-officeagent_dev_only}@db:5432/officeagent
       OFFICEAGENT_DATABASE_ADMIN_URL: postgresql://officeagent:${OFFICEAGENT_POSTGRES_PASSWORD:-officeagent_dev_only}@db:5432/postgres
+      # This value exists only in the test service. The runtime assertion
+      # rejects a test run that is not executing in this isolated container.
+      OFFICEAGENT_TEST_CONTAINER_ISOLATION: "1"
     depends_on:
       db:
         condition: service_healthy

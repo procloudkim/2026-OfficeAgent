@@ -51,7 +51,7 @@ def create_app(services: ServiceContainer | None = None) -> FastAPI:
     app = FastAPI(
         title="OfficeAgent Document Q&A API",
         version="0.1.0",
-        description="Document-grounded question answering with verifiable citations.",
+        description="Document-grounded answers with retrieval-provenance citations.",
         lifespan=lifespan,
     )
 
@@ -134,6 +134,8 @@ def create_app(services: ServiceContainer | None = None) -> FastAPI:
             cache_hit=result.cache_hit,
             cache_match=result.cache_match,
             grounded=result.grounded,
+            cache_written=result.cache_written,
+            cache_skip_reason=result.cache_skip_reason,
         )
 
     @app.post("/v1/questions/stream", tags=["questions"])

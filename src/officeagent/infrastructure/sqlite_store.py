@@ -15,6 +15,7 @@ import aiosqlite
 
 from officeagent.domain.models import (
     CachedAnswer,
+    CacheVersions,
     Citation,
     DocumentChange,
     DocumentRecord,
@@ -57,6 +58,9 @@ class SqliteMetadataStore:
                     embedding_json TEXT NOT NULL,
                     answer TEXT NOT NULL,
                     citations_json TEXT NOT NULL,
+                    prompt_version TEXT NOT NULL DEFAULT 'legacy-unknown-v0',
+                    embedding_version TEXT NOT NULL DEFAULT 'legacy-unknown-v0',
+                    retrieval_version TEXT NOT NULL DEFAULT 'legacy-unknown-v0',
                     valid INTEGER NOT NULL DEFAULT 1 CHECK (valid IN (0, 1)),
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -75,6 +79,14 @@ class SqliteMetadataStore:
 
                 CREATE INDEX IF NOT EXISTS idx_cache_dependencies_document
                 ON cache_dependencies(document_id, cache_id);
+                """
+            )
+            await _ensure_cache_version_columns(connection)
+            await connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_answer_cache_exact_versions
+                ON answer_cache(normalized_question, prompt_version,
+                    embedding_version, retrieval_version, valid, updated_at DESC)
                 """
             )
             await connection.commit()
@@ -163,29 +175,52 @@ class SqliteMetadataStore:
         normalized_question: str,
         question_embedding: Sequence[float],
         similarity_threshold: float,
+        cache_versions: CacheVersions,
     ) -> CachedAnswer | None:
-        """Prefer exact active cache entries, then find the best semantic match."""
+        """Return only cache entries produced by the current semantic versions."""
 
         _validate_threshold(similarity_threshold)
         query_vector = _as_vector(question_embedding)
+        versions = _cache_version_values(cache_versions)
+        now = _utc_now()
         async with self._connect() as connection:
             connection.row_factory = aiosqlite.Row
+            await connection.execute(
+                """
+                UPDATE answer_cache
+                SET valid = 0, updated_at = ?
+                WHERE valid = 1
+                  AND (prompt_version <> ? OR embedding_version <> ?
+                       OR retrieval_version <> ?)
+                """,
+                (now, *versions),
+            )
             cursor = await connection.execute(
                 """
                 SELECT * FROM answer_cache
                 WHERE valid = 1 AND normalized_question = ?
+                  AND prompt_version = ? AND embedding_version = ?
+                  AND retrieval_version = ?
                 ORDER BY updated_at DESC LIMIT 1
                 """,
-                (normalized_question,),
+                (normalized_question, *versions),
             )
             exact = await cursor.fetchone()
             if exact is not None:
+                await connection.commit()
                 return _cached_answer_from_row(exact, similarity=1.0)
 
             cursor = await connection.execute(
-                "SELECT * FROM answer_cache WHERE valid = 1 ORDER BY updated_at DESC"
+                """
+                SELECT * FROM answer_cache
+                WHERE valid = 1 AND prompt_version = ?
+                  AND embedding_version = ? AND retrieval_version = ?
+                ORDER BY updated_at DESC
+                """,
+                versions,
             )
             rows = await cursor.fetchall()
+            await connection.commit()
 
         best_row: sqlite3.Row | None = None
         best_similarity = similarity_threshold
@@ -203,16 +238,17 @@ class SqliteMetadataStore:
     async def save_cached_answer(
         self,
         *,
-        question: str,
         normalized_question: str,
         question_embedding: Sequence[float],
         answer: str,
         citations: Sequence[Citation],
+        cache_versions: CacheVersions,
     ) -> str:
-        """Save an active answer and the documents it depends on."""
+        """Save one answer under its full semantic computation identity."""
 
         cache_id = str(uuid.uuid4())
         now = _utc_now()
+        versions = _cache_version_values(cache_versions)
         vector_json = json.dumps(_as_vector(question_embedding), separators=(",", ":"))
         citations_json = json.dumps(
             [_citation_to_mapping(citation) for citation in citations], separators=(",", ":")
@@ -225,23 +261,27 @@ class SqliteMetadataStore:
                 """
                 UPDATE answer_cache SET valid = 0, updated_at = ?
                 WHERE valid = 1 AND normalized_question = ?
+                  AND prompt_version = ? AND embedding_version = ?
+                  AND retrieval_version = ?
                 """,
-                (now, normalized_question),
+                (now, normalized_question, *versions),
             )
             await connection.execute(
                 """
                 INSERT INTO answer_cache (
-                    id, question, normalized_question, embedding_json, answer, citations_json,
-                    valid, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+                    id, question, normalized_question, embedding_json, answer,
+                    citations_json, prompt_version, embedding_version,
+                    retrieval_version, valid, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                 """,
                 (
                     cache_id,
-                    question,
+                    normalized_question,
                     normalized_question,
                     vector_json,
                     answer,
                     citations_json,
+                    *versions,
                     now,
                     now,
                 ),
@@ -300,6 +340,23 @@ class SqliteMetadataStore:
             await connection.close()
 
 
+async def _ensure_cache_version_columns(connection: aiosqlite.Connection) -> None:
+    """Add P0 cache identity columns to an existing V1 SQLite database."""
+
+    cursor = await connection.execute("PRAGMA table_info(answer_cache)")
+    existing = {str(row[1]) for row in await cursor.fetchall()}
+    statements = {
+        "prompt_version": "ALTER TABLE answer_cache ADD COLUMN prompt_version "
+        "TEXT NOT NULL DEFAULT 'legacy-unknown-v0'",
+        "embedding_version": "ALTER TABLE answer_cache ADD COLUMN embedding_version "
+        "TEXT NOT NULL DEFAULT 'legacy-unknown-v0'",
+        "retrieval_version": "ALTER TABLE answer_cache ADD COLUMN retrieval_version "
+        "TEXT NOT NULL DEFAULT 'legacy-unknown-v0'",
+    }
+    for column, statement in statements.items():
+        if column not in existing:
+            await connection.execute(statement)
+
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -325,11 +382,15 @@ def _cached_answer_from_row(row: sqlite3.Row, *, similarity: float) -> CachedAns
     citations = tuple(Citation(**citation) for citation in citation_mappings)
     return CachedAnswer(
         id=row["id"],
-        question=row["question"],
         normalized_question=row["normalized_question"],
         answer=row["answer"],
         citations=citations,
         similarity=similarity,
+        versions=CacheVersions(
+            prompt_version=row["prompt_version"],
+            embedding_version=row["embedding_version"],
+            retrieval_version=row["retrieval_version"],
+        ),
     )
 
 
@@ -346,6 +407,14 @@ def _citation_to_mapping(citation: Citation) -> dict[str, object]:
         "quote": citation.quote,
         "score": citation.score,
     }
+
+
+def _cache_version_values(versions: CacheVersions) -> tuple[str, str, str]:
+    return (
+        versions.prompt_version,
+        versions.embedding_version,
+        versions.retrieval_version,
+    )
 
 
 def _validate_threshold(value: float) -> None:

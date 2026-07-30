@@ -2,7 +2,8 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 상태 | `PARTIAL` — G2 migration·Compose·DB 통합 테스트까지 구현·검증, G3 CorpusStore와 제품 런타임은 미구현 |
+| 문서 상태 | `PARTIAL` — G3 CorpusStore·P0 offline path가 로컬 워크트리에 구현되고 Docker `48 passed`; current-SHA·remote parity·actual Codex/SSE는 pending |
+| 결정 수명주기 | DEC-010~012는 계속 `PROPOSED`; V1 결정을 아직 supersede하지 않음 |
 | 결정 | PostgreSQL 17.10 + pgvector 0.8.6 단일 영속 계층 |
 | Docker 범위 | PostgreSQL, migration, offline integration test와 CI |
 | 제외 | API/Codex containerization, Redis, ANN, 별도 vector DB |

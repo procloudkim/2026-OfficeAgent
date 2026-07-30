@@ -308,3 +308,62 @@
 
 - G3 CorpusStore transaction, retrieval, cache invalidation, concurrent ingest/query,
   FastAPI wiring, Codex 호출과 SSE live smoke는 G2에서 구현·검증하지 않았다.
+
+## 2026-07-30 — V2 P0 cache·prompt 수용 계약
+
+### Why → What → How → Trade-off → 배운 점
+
+- **Why**: prompt/embedding/retrieval 설정이 바뀐 뒤 stale answer를 재사용하거나,
+  delimiter-like input이 prompt 구조를 흐리는 위험을 G3 전에 계약으로 고정한다.
+- **What**: 세 version 동시 일치 cache identity, `PROMPT_TEMPLATE_VERSION` 단일 정본,
+  JSON untrusted-data envelope, retrieval-provenance citation 의미를 `PLANNED`로
+  기록했다. DEC-010~012는 모두 `PROPOSED`다.
+- **How**: G3에서 real PostgreSQL cache lookup/write와 HTTP/parser/pgvector/cache
+  transaction을 사용하고 LLM/embedding만 double로 둔다. question/evidence delimiter
+  breakout과 version mismatch miss를 regression으로 추가한다.
+- **Trade-off**: cache reuse가 줄고 test surface가 넓어진다. JSON serialization은
+  injection 의미 안전성이나 answer entailment verifier를 제공하지 않는다.
+- **배운 점**: schema version field 존재와 Docker local receipt만으로 policy enforcement나
+  durable gate PASS를 주장할 수 없다. current-SHA integration과 remote parity, 별도
+  live Codex/SSE evidence를 분리해야 한다.
+
+### 명시적 비범위
+
+- Structured LLM output은 별도 spike 전 구현하지 않는다.
+- V1 DEC-002/007/008 및 ADR-0002를 SUPERSEDED/VERIFIED로 바꾸지 않는다.
+
+## 2026-07-30 — V2 P0 구현과 local-worktree 통합
+
+### Why
+
+- cache schema field만 있고 lookup/write가 강제하지 않거나 prompt data가 delimiter
+  구조를 깰 수 있으면 P0 계약은 문서상 선언에 그친다.
+- G3가 실제 PostgreSQL transaction을 사용한다는 증거는 mock store가 아니라
+  parser·HTTP·pgvector·cache row와 failure injection을 함께 통과해야 한다.
+
+### What
+
+- prompt/embedding/retrieval 세 version cache identity와 prompt version SSOT
+- deterministic JSON untrusted-data envelope와 delimiter breakout 회귀
+- PostgreSQL CorpusStore, revision-guarded cache write, V2 bootstrap
+- TXT/PDF HTTP RAG, exact/similar cache, update invalidation과 SSE offline path
+- test container의 Node/Codex/API key/token/.codex 차단
+
+### How
+
+- 실제 임시 PostgreSQL database에 migration을 적용하는 Compose test runner를
+  사용했다.
+- chunk insert 실패와 cache invalidation 이후 revision 실패를 각각 주입해 이전
+  ready document/chunk, active cache와 revision의 전체 rollback을 확인했다.
+- 동일/서로 다른 document 동시 ingest, 세 version mismatch와 stale revision
+  cache-write skip을 검증했다.
+- 최종 로컬 dirty-worktree 명령
+  `docker compose run --build --rm test`는 `48 passed`였다.
+
+### Trade-off와 배운 점
+
+- correctness를 위해 config drift 시 cache reuse를 포기하고 soft invalidation한다.
+- offline SSE PASS는 실제 Codex delta 증거가 아니다. current-SHA, remote parity,
+  clean clone과 live Codex/SSE 전에는 DEC-010~012를 `PROPOSED`로 유지한다.
+- 배운 점: schema와 Docker 파일 존재보다 post-invalidation rollback과
+  current-match SQL predicate가 유지보수 경제성의 직접 증거다.

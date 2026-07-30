@@ -20,6 +20,10 @@ class FastEmbedEmbeddingProvider:
     def dimension(self) -> int:
         return self._dimension
 
+    @property
+    def embedding_version(self) -> str:
+        return f"fastembed:{self._model_name}:dimension={self._dimension}"
+
     def _get_model(self) -> TextEmbedding:
         if self._model is None:
             self._model = TextEmbedding(model_name=self._model_name)

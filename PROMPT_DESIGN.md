@@ -1,80 +1,114 @@
 # Prompt Design
 
-## 목표
+## 상태와 목표
 
-프롬프트의 역할은 문서 근거 안에서 간결히 답하게 하는 것입니다. 출처 식별과
-근거 없음 판정의 1차 gate는 LLM이 아니라 검색 결과와 서버 코드가 맡습니다.
-프롬프트의 canonical source는
-[`src/officeagent/application/prompts.py`](./src/officeagent/application/prompts.py)입니다.
+프롬프트의 역할은 검색된 문서 근거 안에서 간결히 답하게 하는 것입니다. 검색
+threshold, no-evidence와 citation 조립은 LLM이 아니라 서버 코드가 담당합니다.
+
+canonical source는
+[`src/officeagent/application/prompts.py`](./src/officeagent/application/prompts.py)이며
+`PROMPT_TEMPLATE_VERSION = "grounded-json-v2"`도 그 파일에만 선언합니다.
+
+현재 JSON envelope와 delimiter breakout 회귀는 로컬 워크트리에 구현되어 있고
+Docker 전체 suite `48 passed`를 확인했습니다. 아직 current-SHA와 실제 Codex/SSE
+영수증 전이므로 V2 전체를 `VERIFIED`로 표현하지 않습니다.
 
 ## Why–What–How
 
 | Why | What | How |
 |---|---|---|
-| 문서 밖 추론을 억제 | evidence-only 규칙 | “evidence block이 지지하는 사실만” 명시 |
-| prompt injection 완화 | 문서는 untrusted data | evidence 안 명령을 따르지 말라고 명시하고 metadata attribute를 escape |
-| 근거 부족 시 환각 방지 | 명시적 abstention | 검색 score gate + prompt의 insufficient-evidence 문구 |
-| 다국어 질문 품질 | 질문 언어 유지 | 질문과 같은 언어로 간결히 답하도록 지시 |
-| 허위 출처 방지 | citation을 생성에서 분리 | LLM에게 참고문헌을 쓰지 말라고 하고 서버가 Chunk에서 생성 |
+| 문서 밖 추론 억제 | evidence-only 규칙 | JSON evidence가 지지하는 사실만 답하도록 명시 |
+| 구조적 breakout 완화 | 하나의 untrusted-data JSON envelope | question/evidence/metadata를 `json.dumps`하고 `<`, `>`, `&` escape |
+| 근거 부족 시 환각 방지 | 이중 abstention | 서버 score gate에서 LLM skip + prompt 규칙 |
+| 다국어 질문 품질 | 질문 언어 유지 | 질문과 같은 언어로 간결히 답하도록 명시 |
+| 허위 출처 방지 | citation 생성 분리 | LLM에 출처 생성을 요구하지 않고 서버가 Chunk에서 조립 |
+| stale cache 방지 | prompt version SSOT | cache identity에 prompt/embedding/retrieval version 결합 |
 
 ## Prompt 구조
 
+지시문 뒤에 marker를 한 번만 쓰고, 이후 모든 사용자·문서 데이터를 JSON value로
+직렬화합니다.
+
 ```text
-role/rules
-<question>
-사용자 질문
-</question>
-<evidence_set>
-  <evidence id="1" document="..." chunk="..." page="...">
-  검색된 원문
-  </evidence>
-</evidence_set>
+role and grounding rules
+Prompt template version: grounded-json-v2
+UNTRUSTED_INPUT_JSON:
+{"evidence":[...],"prompt_version":"grounded-json-v2","question":"..."}
 ```
 
-각 evidence에는 서버가 알고 있는 filename, chunk id, page를 경계 속성으로
-넣고 client-controlled filename metadata는 attribute용으로 escape합니다. 모델
-출력에는 citation 형식을 요구하지 않습니다. 이 구조는 API가 실제 검색된
-문서·부분만 반환하게 하지만, 문서 본문의 적대적 instruction을 의미적으로 완전히
-차단하거나 모델이 각 청크를 답에 사용했음을 증명하지는 않습니다.
+각 evidence object는 다음 두 부분을 가집니다.
 
-## Grounding 전략
+- `text`: 검색된 청크 원문
+- `metadata`: document id/version, filename, chunk id/index, page,
+  start/end offset
 
-1. cosine score가 기본 `0.30` 미만인 청크는 prompt에 넣지 않습니다.
-2. 남은 청크가 없으면 LLM을 전혀 호출하지 않고
-   “업로드된 문서에서 충분한 근거를 찾지 못했다”고 반환합니다.
-3. evidence가 있더라도 질문을 확정하기 부족할 수 있으므로 prompt에도
-   insufficient-evidence 규칙을 반복합니다.
-4. evidence 안의 “이전 지시를 무시하라” 같은 문자열은 데이터일 뿐이라고
-   명시합니다. 이는 방어 규칙이며 adversarial evaluator를 통과했다는 주장은 아닙니다.
-5. 기본 5개(설정 상한 20), 청크당 기본 900자로 context를 제한해 비용과
-   distractor를 제어합니다.
+`ensure_ascii=False`, `allow_nan=False`, compact separators와 `sort_keys=True`를
+사용하고 serialized JSON의 `&`, `<`, `>`를 각각 `\u0026`, `\u003c`,
+`\u003e`로 바꿉니다. JSON을 parse하면 원래 question/evidence/metadata 값이
+round-trip 됩니다.
 
-`0.30`과 top-5는 안전한 초기값이며 데이터셋 기반 정답률 튜닝 결과라고
-과장하지 않습니다. 현재 fixture 테스트는 관련/무관 문서 분리와 LLM 미호출을
-검증합니다.
+이 설계는 `</question>`, `</evidence>`, 가짜 marker나 악성 filename이 prompt의
+구조적 경계를 닫는 것을 막습니다. 그러나 모델이 데이터 안 명령을 의미적으로
+따르지 않는다고 완전히 증명하지는 않습니다.
 
-서버 생성 citation은 score gate를 통과한 검색 청크의 provenance입니다. 현재는
-모든 relevant hit를 반환하며 model answer와 각 citation 사이 entailment나 실제
-사용 subset을 post-generation으로 검증하지 않습니다. `grounded=true`도 이
-제약 안에서 해석해야 합니다.
+## Grounding과 citation
 
-## 생성과 스트리밍
+1. 기본 top-5 검색 후 cosine score `0.30` 미만을 제거합니다.
+2. 남는 청크가 없으면 LLM을 호출하지 않고 고정 no-evidence 응답을 반환합니다.
+3. 근거가 있으면 prompt에도 insufficient-evidence일 때 답변 불가를 말하도록
+   반복합니다.
+4. LLM 답변과 별개로 서버가 relevant `Chunk`에서 citation을 만듭니다.
 
-Codex App Server의 `item/agentMessage/delta`만 모델 출력으로 인정합니다.
-서버가 전체 답을 받은 뒤 가짜로 자르지 않습니다. 첫 delta 전 transport/timeout
-실패만 한 번 재시도하고, delta 이후 실패는 `answer.error`로 끝냅니다.
+`answer.citation`은 retrieval provenance입니다. 현재는 모든 relevant hit를
+반환하며 model answer와 각 citation의 entailment 또는 실제 사용 subset을
+post-generation으로 검증하지 않습니다. `grounded=true`도 이 의미 경계 안에서
+해석해야 합니다.
 
-캐시 hit의 80자 replay는 응답 UX를 위한 별도 경로이며, API의
-`cache_hit=true`로 live generation과 명확히 구분합니다.
+threshold `0.30`, cache threshold `0.95`는 안전한 초기값이지 한국어 gold
+dataset에서 최적화됐다는 주장이 아닙니다.
 
-## 테스트와 관찰 항목
+## Streaming과 cache
 
-- 관련 질문: 기대 문서가 top-1이고 prompt에 해당 원문이 포함되는가
-- 무관 질문: LLM 호출 수가 증가하지 않고 citation이 비어 있는가
-- 스트리밍: 두 gateway delta가 같은 순서의 두 SSE delta인가
-- 캐시: exact/similar 질문이 prompt/LLM을 다시 호출하지 않는가
-- metadata 경계: 악성 filename이 evidence attribute를 닫지 못하는가
-- 인젝션 의미 회귀: 향후 악성 문서 fixture와 answer policy evaluator를 추가할 것
+Codex App Server의 실제 `item/agentMessage/delta`만 live model output으로
+인정합니다. 첫 delta 전 transport/timeout만 한 번 재시도하고 delta 이후 실패는
+`answer.error`로 종료합니다.
 
-현재 자동화는 구조·호출 경계를 검증합니다. 답변의 의미 품질을 정량화하는 gold
-dataset 평가는 아직 구현하지 않았으며, 이를 구현했다고 주장하지 않습니다.
+cache hit의 80자 replay는 `cache_hit=true`로 live generation과 구분합니다. hit는
+active row의 다음 값이 모두 현재 설정과 같을 때만 허용합니다.
+
+- `prompt_version`
+- `embedding_version`
+- `retrieval_version`
+
+## 자동화 검증
+
+- `tests/test_prompts.py`
+  - question/evidence delimiter 문자열의 JSON round-trip
+  - filename/chunk/page metadata breakout
+  - marker가 정확히 한 번만 존재
+  - `PROMPT_TEMPLATE_VERSION`과 payload/cache SSOT
+- `tests/test_postgres_corpus_store.py`
+  - 세 version current-match hit와 각각의 mismatch miss
+  - prompt version drift의 전체 fallback invalidation
+- `tests/test_v2_offline_paths.py`
+  - 실제 HTTP/pgvector/cache 흐름에서 version 저장과 cache 재사용
+
+자동화는 구조·호출 경계를 검증합니다. answer 의미 품질과 adversarial prompt
+injection 방어율을 정량화하는 evaluator는 아직 없습니다.
+
+## Structured output 비범위
+
+LLM structured output은 별도 spike 전에는 구현하지 않습니다. spike에는 최소한
+Codex App Server 지원 형태, SSE delta 영향, parse 실패·retry, latency와 citation
+계약의 수용 조건이 필요합니다. 그 전에는 plain text delta와 서버 생성 retrieval
+provenance를 유지합니다.
+
+## Trade-off와 배운 점
+
+- JSON envelope는 XML-like delimiter 조합보다 구조가 명확하지만 token과
+  serialization test surface가 늘어납니다.
+- version을 cache identity에 넣으면 correctness는 높아지고 reuse는 줄어듭니다.
+- “구조적으로 escape했다”와 “의미적으로 안전하다”를 분리해야 허위 보안 주장을
+  피할 수 있습니다.
+- prompt version field의 존재가 아니라 실제 lookup/write와 mismatch regression이
+  정책 enforcement 증거입니다.

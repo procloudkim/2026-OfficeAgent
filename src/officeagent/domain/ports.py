@@ -7,10 +7,13 @@ from typing import Protocol
 
 from officeagent.domain.models import (
     CachedAnswer,
+    CacheVersions,
+    CacheWriteResult,
     Chunk,
     Citation,
     DocumentRecord,
     DocumentUpsertResult,
+    RetrievalSnapshot,
     SearchHit,
 )
 
@@ -21,6 +24,10 @@ class EmbeddingProvider(Protocol):
     @property
     def dimension(self) -> int:
         """Return the fixed embedding dimension."""
+
+    @property
+    def embedding_version(self) -> str:
+        """Return the semantic version of the embedding computation."""
 
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         """Embed document passages."""
@@ -76,17 +83,18 @@ class MetadataStore(Protocol):
         normalized_question: str,
         question_embedding: Sequence[float],
         similarity_threshold: float,
+        cache_versions: CacheVersions,
     ) -> CachedAnswer | None:
         """Find an exact cache entry first, then a sufficiently similar one."""
 
     async def save_cached_answer(
         self,
         *,
-        question: str,
         normalized_question: str,
         question_embedding: Sequence[float],
         answer: str,
         citations: Sequence[Citation],
+        cache_versions: CacheVersions,
     ) -> str:
         """Persist an answer and its document dependencies."""
 
@@ -95,6 +103,40 @@ class MetadataStore(Protocol):
 
     async def invalidate_all_cache(self) -> int:
         """Invalidate all entries after corpus expansion."""
+
+class RevisionAwareCorpusStore(Protocol):
+    """Cache and retrieval port backed by one revisioned corpus transaction model."""
+
+    async def find_cached_answer(
+        self,
+        *,
+        normalized_question: str,
+        question_embedding: Sequence[float],
+        similarity_threshold: float,
+        cache_versions: CacheVersions,
+    ) -> CachedAnswer | None:
+        """Return a current-version exact or similar cache entry."""
+
+    async def retrieve(
+        self,
+        query_embedding: Sequence[float],
+        *,
+        limit: int,
+    ) -> RetrievalSnapshot:
+        """Return evidence and the revision observed with it."""
+
+    async def save_cached_answer(
+        self,
+        *,
+        normalized_question: str,
+        question_embedding: Sequence[float],
+        answer: str,
+        citations: Sequence[Citation],
+        cache_versions: CacheVersions,
+        expected_revision: int,
+    ) -> CacheWriteResult:
+        """Write only if the current corpus revision still matches."""
+
 
 
 class LlmGateway(Protocol):

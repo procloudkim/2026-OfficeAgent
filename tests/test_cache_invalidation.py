@@ -53,6 +53,10 @@ class _FailOnceEmbeddingProvider:
     def dimension(self) -> int:
         return self._delegate.dimension
 
+    @property
+    def embedding_version(self) -> str:
+        return self._delegate.embedding_version
+
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         if self._fail_next:
             self._fail_next = False
@@ -109,6 +113,7 @@ async def _find_cache(runtime: RuntimeFixture, question: str):
         normalized_question=normalize_question(question),
         question_embedding=await runtime.embeddings.embed_query(question),
         similarity_threshold=0.95,
+        cache_versions=runtime.cache_versions,
     )
 
 

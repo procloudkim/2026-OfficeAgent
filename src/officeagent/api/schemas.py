@@ -55,3 +55,5 @@ class AnswerResponse(BaseModel):
     cache_hit: bool
     cache_match: str | None
     grounded: bool
+    cache_written: bool
+    cache_skip_reason: str | None

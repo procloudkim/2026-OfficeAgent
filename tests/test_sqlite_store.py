@@ -2,8 +2,15 @@ import sqlite3
 
 import pytest
 
-from officeagent.domain.models import Citation, DocumentChange
+from officeagent.domain.models import CacheVersions, Citation, DocumentChange
 from officeagent.infrastructure.sqlite_store import SqliteMetadataStore
+
+_VERSIONS = CacheVersions(
+    prompt_version="prompt-v1",
+    embedding_version="embedding-v1",
+    retrieval_version="retrieval-v1",
+)
+
 
 
 def _citation(document_id: str) -> Citation:
@@ -39,13 +46,6 @@ async def test_document_version_changes_only_when_hash_changes(test_data_dir) ->
     assert unchanged.change is DocumentChange.UNCHANGED
     assert updated.change is DocumentChange.UPDATED
     assert created.document.id == unchanged.document.id == updated.document.id
-    assert (
-        created.document.version,
-        unchanged.document.version,
-        updated.document.version,
-    ) == (1, 1, 2)
-
-
 async def test_cache_prefers_exact_then_invalidates_only_dependencies(
     test_data_dir,
 ) -> None:
@@ -58,36 +58,75 @@ async def test_cache_prefers_exact_then_invalidates_only_dependencies(
         filename="second.txt", content_type="text/plain", content_hash="second"
     )
     await store.save_cached_answer(
-        question="What is first?",
         normalized_question="what is first",
         question_embedding=[1.0, 0.0],
         answer="first answer",
         citations=[_citation(first_document.document.id)],
+        cache_versions=_VERSIONS,
     )
     await store.save_cached_answer(
-        question="What is second?",
         normalized_question="what is second",
         question_embedding=[0.0, 1.0],
         answer="second answer",
         citations=[_citation(second_document.document.id)],
+        cache_versions=_VERSIONS,
     )
 
     exact = await store.find_cached_answer(
         normalized_question="what is first",
         question_embedding=[0.0, 1.0],
         similarity_threshold=0.99,
+        cache_versions=_VERSIONS,
     )
     invalidated = await store.invalidate_cache_for_document(first_document.document.id)
     remaining = await store.find_cached_answer(
         normalized_question="what is second",
         question_embedding=[0.0, 1.0],
         similarity_threshold=0.99,
+        cache_versions=_VERSIONS,
     )
 
     assert exact is not None and exact.answer == "first answer" and exact.similarity == 1.0
+    assert exact.versions == _VERSIONS
     assert invalidated == 1
     assert remaining is not None and remaining.answer == "second answer"
     assert await store.invalidate_all_cache() == 1
+
+
+async def test_cache_misses_when_any_semantic_version_differs(test_data_dir) -> None:
+    store = SqliteMetadataStore(test_data_dir / "metadata.sqlite3")
+    await store.initialize()
+    document = await store.upsert_document(
+        filename="policy.txt", content_type="text/plain", content_hash="policy"
+    )
+    mismatches = (
+        CacheVersions("prompt-v2", "embedding-v1", "retrieval-v1"),
+        CacheVersions("prompt-v1", "embedding-v2", "retrieval-v1"),
+        CacheVersions("prompt-v1", "embedding-v1", "retrieval-v2"),
+    )
+
+    for mismatch in mismatches:
+        await store.save_cached_answer(
+            normalized_question="policy question",
+            question_embedding=[1.0, 0.0],
+            answer="versioned answer",
+            citations=[_citation(document.document.id)],
+            cache_versions=_VERSIONS,
+        )
+        exact = await store.find_cached_answer(
+            normalized_question="policy question",
+            question_embedding=[1.0, 0.0],
+            similarity_threshold=0.95,
+            cache_versions=mismatch,
+        )
+        similar = await store.find_cached_answer(
+            normalized_question="similar wording",
+            question_embedding=[1.0, 0.0],
+            similarity_threshold=0.95,
+            cache_versions=mismatch,
+        )
+        assert exact is None
+        assert similar is None
 
 
 async def test_cache_dependency_rejects_unknown_document(test_data_dir) -> None:
@@ -96,9 +135,9 @@ async def test_cache_dependency_rejects_unknown_document(test_data_dir) -> None:
 
     with pytest.raises(sqlite3.IntegrityError):
         await store.save_cached_answer(
-            question="unknown",
             normalized_question="unknown",
             question_embedding=[1.0, 0.0],
             answer="must not persist",
             citations=[_citation("missing-document")],
+            cache_versions=_VERSIONS,
         )

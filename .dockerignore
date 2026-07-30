@@ -1,6 +1,7 @@
 # Credentials and developer-local configuration
 .codex/
 .env
+.env.*
 
 # Runtime databases and evaluator/user content
 .data/

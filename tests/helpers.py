@@ -13,7 +13,12 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from officeagent.api.app import ServiceContainer
 from officeagent.application.ingestion import IngestionService
-from officeagent.application.question_answering import QuestionAnsweringService
+from officeagent.application.prompts import PROMPT_TEMPLATE_VERSION
+from officeagent.application.question_answering import (
+    QuestionAnsweringService,
+    build_retrieval_version,
+)
+from officeagent.domain.models import CacheVersions
 from officeagent.infrastructure.chroma_store import ChromaVectorStore
 from officeagent.infrastructure.sqlite_store import SqliteMetadataStore
 
@@ -27,6 +32,10 @@ class KeywordEmbeddingProvider:
     @property
     def dimension(self) -> int:
         return len(self.vocabulary)
+
+    @property
+    def embedding_version(self) -> str:
+        return "keyword-v1:" + "|".join(self.vocabulary)
 
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         return [self._embed(text) for text in texts]
@@ -75,6 +84,7 @@ class TestRuntime:
     metadata: SqliteMetadataStore
     vectors: ChromaVectorStore
     embeddings: KeywordEmbeddingProvider
+    cache_versions: CacheVersions
 
 
 async def build_test_runtime(
@@ -93,6 +103,15 @@ async def build_test_runtime(
     vectors = ChromaVectorStore(temporary_directory / "chroma", "test_document_chunks")
     embeddings = KeywordEmbeddingProvider(vocabulary)
     llm_gateway = llm or FakeLlmGateway()
+    cache_versions = CacheVersions(
+        prompt_version=PROMPT_TEMPLATE_VERSION,
+        embedding_version=embeddings.embedding_version,
+        retrieval_version=build_retrieval_version(
+            limit=retrieval_limit,
+            minimum_score=minimum_relevance_score,
+            cache_threshold=cache_similarity_threshold,
+        ),
+    )
     services = ServiceContainer(
         ingestion=IngestionService(
             metadata,
@@ -110,6 +129,7 @@ async def build_test_runtime(
             retrieval_limit=retrieval_limit,
             minimum_relevance_score=minimum_relevance_score,
             cache_similarity_threshold=cache_similarity_threshold,
+            cache_versions=cache_versions,
         ),
     )
     return TestRuntime(
@@ -117,6 +137,7 @@ async def build_test_runtime(
         metadata=metadata,
         vectors=vectors,
         embeddings=embeddings,
+        cache_versions=cache_versions,
     )
 
 

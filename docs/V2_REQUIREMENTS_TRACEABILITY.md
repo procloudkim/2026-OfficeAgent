@@ -2,112 +2,123 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 상태 | `PARTIAL` — G1·G2 infrastructure는 검증, G3 제품 통합은 DRAFT |
+| 문서 상태 | `PARTIAL` |
 | 기준선 | V1 `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | 대상 브랜치 | `feat/v2-postgres-pgvector-compose` |
-| claim 상태 | 제품: `DRAFT`/`IMPLEMENTED`/`VERIFIED`/`UNKNOWN`; gate·운영: `PASS`/`PARTIAL`/`DRAFT` |
+| 로컬 영수증 | dirty worktree `docker compose run --build --rm test` → `48 passed` |
+| 미충족 | current-SHA commit, G2 remote parity, clean clone, actual Codex/SSE |
 
-이 표는 V2 요구사항을 code/test/evidence에 연결한다. G1 remote branch와 G2
-database infrastructure만 검증됐다. 제품 composition은 계속 V1 SQLite+Chroma며
-G3 전에는 V2 ingestion/retrieval/cache/SSE를 완료로 주장하지 않는다. 파일명이나
-계획만으로 구현·검증 완료를 주장하지 않는다. V1의 27-test와 `e838cc7` live
-smoke는 역사적 회귀 기준선이며 V2 제품 증거가 아니다.
+현재 V2 PostgreSQL composition과 P0 코드는 로컬 워크트리에 존재하고 구독 없는
+실제 DB integration이 통과했습니다. 그러나 영수증이 불변 commit에 연결되지
+않았고 실제 Codex/SSE도 실행하지 않았으므로 상태는 `IMPLEMENTED/PARTIAL`입니다.
+V1의 과거 test/live smoke는 V2 증거로 재사용하지 않습니다.
 
-## 1. 제품 요구사항 매트릭스
+상태:
 
-| 규칙·요구 | 수용 조건 | 대상 code/document | 대상 test/evidence | 상태 |
+- `IMPLEMENTED`: 현재 로컬 코드와 정적 대조가 됨
+- `PARTIAL`: 로컬 runtime은 통과했지만 current-SHA/remote 또는 live 경계가 남음
+- `VERIFIED`: current-SHA에서 요구 runtime 영수증까지 통과
+- `UNKNOWN`: 확인 증거 없음
+
+## 1. 제품 요구사항
+
+| 규칙 | 구현·테스트 근거 | 상태 |
+|---|---|---|
+| `REQ-01`~`REQ-03` 수집 | FastAPI multipart, 실제 TXT/PDF parser, transactional ingestion, ready/version/same-byte assertions | `PARTIAL` |
+| `REQ-04` RAG | PostgreSQL pgvector `<=>`, 한국어 3문서 fixture, top citation | `PARTIAL` |
+| `REQ-05` 답변 생성 | production bootstrap은 Codex gateway, offline은 scripted LLM double만 사용 | `IMPLEMENTED`; live `UNKNOWN` |
+| `REQ-06` 출처 | server-side chunk→citation mapper, filename/version/page/offset HTTP/SSE | `PARTIAL` |
+| `REQ-07` 무근거 | zero/threshold miss에서 LLM·cache skip | `PARTIAL` |
+| `REQ-08` streaming | SSE started→delta→citation→completed, cache replay 구분 | `IMPLEMENTED`; live incremental `UNKNOWN` |
+| `REQ-09` LLM 경계 | 기존 Codex protocol timeout/retry/no-tool tests 보존 | `IMPLEMENTED`; V2 live `UNKNOWN` |
+| `REQ-10` exact cache | active + 세 current version exact predicate | `PARTIAL` |
+| `REQ-11` similar cache | exact miss 후 pgvector cosine `>=0.95` | `PARTIAL` |
+| `REQ-12` cache metadata | JSON/SSE hit/match/write/skip fields | `PARTIAL` |
+| `REQ-13` 무효화 | CREATED 전체, UPDATED dependency+new similarity, version mismatch fallback, UNCHANGED no-op | `PARTIAL` |
+| `REQ-14` prompt | version SSOT, JSON envelope, delimiter round-trip, plain output | `PARTIAL` |
+
+## 2. Transaction·concurrency·migration
+
+| ID | 불변식과 증거 | 상태 |
+|---|---|---|
+| `TX-01` | document/chunk/vector/cache/revision/ready 한 transaction; post-invalidation trigger rollback | `PARTIAL` |
+| `TX-02` | parse/chunk/embed transaction 밖; filename advisory lock 뒤 hash/version 재확인 | `PARTIAL` |
+| `TX-03` | chunk 또는 revision 실패 뒤 이전 ready document/chunk/cache/revision 보존 | `PARTIAL` |
+| `CC-01` | 동일 document 동시 ingest → CREATED+UNCHANGED, revision 1 | `PARTIAL` |
+| `CC-02` | 서로 다른 document 동시 ingest → ready 2, revision 2 | `PARTIAL` |
+| `CC-03` | LLM 중 revision 변경 → cache write `corpus_changed` skip | `PARTIAL` |
+| `MIG-01` | forward-only version/checksum/applied time, empty DB/re-run/drift/history | `PASS` local |
+| `MIG-02` | advisory lock, failed migration rollback | `PASS` local |
+| `OPS-01` | digest-pinned PostgreSQL 17.10/pgvector 0.8.6 | `PASS` local |
+| `OPS-02` | `/health/ready` DB/migration/vector 확인 | `DRAFT` |
+| `OPS-03` | isolated one-line Compose test, temporary database | `PARTIAL` — 48 local |
+| `OPS-04` | raw question/evidence 없는 timing log | `DRAFT` |
+
+## 3. 공식 테스트와 double 경계
+
+| ID | 실제 경계 | 허용 double | 로컬 증거 | 상태 |
 |---|---|---|---|---|
-| `REQ-01`~`REQ-03` 문서 수집 | TXT/PDF HTTP upload, 실제 추출, ready document와 chunk/vector 저장, provenance, revision, same-byte no-op | parser/chunker 유지, `CorpusStore`, migration, FastAPI route | PostgreSQL-backed `test_ingestion.py`, `TEST-01` receipt | `DRAFT` |
-| `REQ-04` RAG 검색 | 실제 pgvector `<=>` exact cosine와 top-k | PostgreSQL store query, `QuestionAnsweringService` | 한국어 3문서 fixture, SQL/`EXPLAIN` assertion | `DRAFT` |
-| `REQ-05` 답변 생성 | 근거가 있을 때 production Codex App Server 호출 | 기존 Codex gateway 유지, lazy composition | fake gateway regression + final current-HEAD live smoke | `DRAFT` |
-| `REQ-06` 출처 | 검색 chunk의 filename/version/page 또는 offset을 서버가 조립 | chunk schema, citation mapper | retrieval/API/SSE assertions | `DRAFT` |
-| `REQ-07` 무근거 처리 | threshold 미만이면 `no_evidence`, citation/cache/LLM 없음 | score gate 유지 | no-evidence fake 호출 수 0 | `DRAFT` |
-| `REQ-08` streaming | 실제 delta를 모으지 않고 completed 전에 SSE 전달 | Codex gateway와 SSE route 유지 | first-delta order test + final live delta receipt | `DRAFT` |
-| `REQ-09` LLM 경계 | timeout/retry/error mapping, production fake 없음 | Codex adapter/config | protocol tests + source audit + live smoke | `DRAFT` |
-| `REQ-10` exact cache | normalized exact active/config-matched row 우선 | `answer_cache`, CorpusStore lookup | fake LLM call count 불증가 | `DRAFT` |
-| `REQ-11` similar cache | exact miss 후 pgvector cosine threshold `0.95` | question `vector(384)` lookup | similar fixture/call count | `DRAFT` |
-| `REQ-12` cache metadata | response/SSE에 hit/match, write/skip metadata | API schema/events | JSON/SSE contract test | `DRAFT` |
-| `REQ-13` 문서 변경 무효화 | CREATED 전체, UPDATED dependency+similarity, mismatch 전체 fallback, UNCHANGED no-op | transactional ingestion, soft invalidation | `TEST-03`, invalidation row/reason/version assertions | `DRAFT` |
-| `REQ-14` prompt 설계 | 기존 untrusted-evidence/abstention prompt와 문서 정합 | `prompts.py`, `PROMPT_DESIGN.md` | prompt boundary regression | `DRAFT` |
-| `TECH-01`/`TECH-02` | Python 3.11+ / FastAPI 유지 | `pyproject.toml`, app | runtime version, API tests | `DRAFT` |
-| `TECH-12`/`TECH-13` | storage/search 선택과 이유 | Phase2 PRD, Trade-off, ADR-0004 | document review와 code parity | `DRAFT` |
+| `TEST-01` Ingestion | PostgreSQL, migration, pgvector, parser, HTTP TXT/PDF | embedding, unused LLM | `test_v2_offline_paths.py` | `PARTIAL` |
+| `TEST-02` Retrieval | PostgreSQL `<=>`, rank, provenance, HTTP/SSE | embedding, scripted LLM | 한국어 fixture/no-evidence | `PARTIAL` |
+| `TEST-03` Cache | row/dependency/invalidation/revision/transaction | embedding, scripted LLM | exact/similar/update/rollback | `PARTIAL` |
+| `P0-SEC-01` | image/runtime env/path/mount | 없음 | Node/Codex/key/token/.codex 부재 | `PARTIAL` |
+| `P0-PROMPT-01` | JSON serialization | 없음 | question/evidence/metadata breakout | `PARTIAL` |
+| `P0-STRUCT-01` | structured output source 부재 | 해당 없음 | plain text prompt/gateway source audit | `PARTIAL` |
 
-## 2. Transaction·migration·운영 매트릭스
+공식 명령:
 
-| ID | 불변식 | 대상 구현 | 필수 증거 | 상태 |
-|---|---|---|---|---|
-| `TX-01` | document/chunk/vector/cache invalidation/revision/ready 한 transaction | unified `CorpusStore` | fault injection 전체 rollback | `DRAFT` |
-| `TX-02` | parse/chunk/embed는 transaction 밖, write 직전 hash/version 재확인 | ingestion service + advisory lock | stale precompute/concurrent ingest test | `DRAFT` |
-| `TX-03` | 이전 ready corpus 보존과 성공 retry | transactional write path | failure→read old corpus→retry | `DRAFT` |
-| `CC-01` | 동일 document ingestion 직렬화 | transaction-scoped advisory lock | concurrent tasks test | `DRAFT` |
-| `CC-02` | 서로 다른 document ingestion의 revision 일관성 | locked singleton revision update | concurrent tasks/revision assertion | `DRAFT` |
-| `CC-03` | LLM 중 revision 변경 시 cache write skip | retrieval snapshot + conditional save | `cache_skip_reason=corpus_changed` | `DRAFT` |
-| `MIG-01` | forward-only SQL, version/checksum/applied timestamp | migration runner + numbered SQL | empty DB/re-run/checksum mismatch | `PASS` |
-| `MIG-02` | migration advisory lock과 current-file rollback | migration runner | concurrent/non-prefix/failure rollback | `PASS` |
-| `OPS-01` | PostgreSQL 17.10/pgvector 0.8.6 실제 runtime | digest-pinned Compose | head/version JSON + runtime inspection | `PASS` |
-| `OPS-02` | DB/migration/vector readiness, LLM 미호출 | `/health/ready` | ready/unready integration smoke | `DRAFT` |
-| `OPS-03` | one-line subscription-free integration test | Compose `test` service | `33 passed`; clean-down proof is G4 | `PARTIAL` |
-| `OPS-04` | question/document raw text 없는 timing log | structured logging | capture/source review | `DRAFT` |
+```bash
+docker compose run --build --rm test
+```
 
-## 3. 공식 필수 테스트
+Test runner는 고유 이름의 임시 database를 생성하고 migration을 적용하며 종료 시
+그 database만 삭제합니다. 동시성은 개별 test 안의 explicit parallel task로
+검증합니다.
 
-| ID | Mock 금지 경계 | Mock 허용 경계 | 완료 영수증 | 상태 |
-|---|---|---|---|---|
-| `TEST-01` Ingestion | PostgreSQL, migration, pgvector, parser, HTTP upload | deterministic embedder, unused LLM | 명령/exit/current SHA | `DRAFT` |
-| `TEST-02` Retrieval | PostgreSQL `<=>`, rank, provenance/citation | deterministic embedder, no-evidence LLM fake | 명령/exit/`EXPLAIN`/current SHA | `DRAFT` |
-| `TEST-03` Cache invalidation | answer cache/dependency/invalidation/transaction | scripted fake LLM, deterministic embedder | 명령/exit/row assertions/current SHA | `DRAFT` |
+## 4. P0 1~9 매핑
 
-`docker compose down` 직후 사전 DB 명령 없이 `docker compose run --rm test`가
-성공해야 한다. Test session은 기존 개발 DB state에 의존하지 않는 고유 database
-또는 schema를 사용하고 DB integration test를 직렬 실행한다. 동시성은 한 test
-안의 explicit parallel tasks로만 만든다.
-
-## 4. V1 회귀 계약
-
-| V1 동작 | V2에서 보존할 것 | V2 증거 | 상태 |
-|---|---|---|---|
-| PDF/TXT/MD parsing | format validation, page/offset provenance, upload limit | parser + ingestion tests | `DRAFT` |
-| API schema | document/question response fields와 status mapping | API regression | `DRAFT` |
-| No-evidence | LLM skip, fixed semantic response, no citation/cache | retrieval regression | `DRAFT` |
-| Codex protocol | read-only/no-tool JSON-RPC, timeout/retry | existing protocol suite | `DRAFT` |
-| SSE | started→delta→citation→completed/error, same request ID | stream regression + live smoke | `DRAFT` |
-| Prompt boundary | untrusted evidence와 metadata attribute escape | prompt test | `DRAFT` |
-| Retrobot | generated paths만 stage/auto-commit | hook regression | `DRAFT` |
-
-SQLite/Chroma adapter tests는 PostgreSQL 대체 integration test가 존재하고 V2
-composition에서 더 이상 사용하지 않을 때만 제거한다. 제거 이유와 대체 test를
-현재 SHA에 연결한다.
+| P0 | 코드 | 회귀 |
+|---|---|---|
+| 1. 세 version 저장 | migration, `CacheVersions`, PostgreSQL/SQLite adapters | DB row assertions |
+| 2. 세 version 모두 current-match | exact/similar SQL predicate와 soft invalidation | 세 개별 mismatch miss |
+| 3. prompt SSOT | `prompts.py::PROMPT_TEMPLATE_VERSION` | declaration/payload assertion |
+| 4. 안전한 구조 직렬화 | deterministic JSON + `<>&` escape | question/evidence/metadata breakout |
+| 5. citation 의미 | API/prompt/docs의 retrieval provenance | 금지 표현 source scan |
+| 6. offline double 제한 | V2 service container에 embedding/LLM double만 주입 | actual DB/parser/HTTP/SSE assertions |
+| 7. test container 격리 | Dockerfile, `.dockerignore`, Compose sentinel | executable/env/mount runtime test |
+| 8. DEC 상태 | DEC-010~012 `PROPOSED`, V1 보존 | decision/document audit |
+| 9. structured output | 구현하지 않고 plain text delta 유지 | source/prompt regression |
 
 ## 5. 불합격 기준 gate
 
-| ID | PASS 조건 | 현재 상태 |
+| ID | 현재 판단 | 남은 증거 |
 |---|---|---|
-| `DQ-01` 실행 불가 | clean checkout README DB/migration/API/readiness와 one-line test | `DRAFT` |
-| `DQ-02` 하드코딩 답변 | production Codex code path + current V2 HEAD actual SSE | `DRAFT` |
-| `DQ-03` vector/cache DB 없음 | 실제 pgvector retrieval + DB cache/invalidation | `DRAFT` |
-| `DQ-04` 자동화 테스트 전무 | 독립 실행되는 `TEST-01`~`TEST-03` | `DRAFT` |
-| `DQ-05` OSS 통째 복사 | V1 증분 Git history + dependency/license provenance | `DRAFT` |
-| `DQ-06` 허위 문서 | claim별 current code/test/receipt 또는 DRAFT 명시 | `DRAFT` |
-| `DQ-07` 평가 창 밖 구현 | deadline 전 의미 있는 commit/push와 remote SHA | `DRAFT` |
+| `DQ-01` 실행 불가 | `PARTIAL` | clean clone 제품 실행과 README 절차 |
+| `DQ-02` hardcode/LLM 없음 | `PARTIAL` | current-SHA actual Codex/SSE |
+| `DQ-03` vector/cache DB 없음 | `PARTIAL` | 현재 구현·local real-DB test, current-SHA 필요 |
+| `DQ-04` 자동화 테스트 전무 | `PARTIAL` | 48 local, current-SHA 필요 |
+| `DQ-05` OSS 통째 복사 | `PARTIAL` | V1 증분 history와 dependency provenance 최종 감사 |
+| `DQ-06` 허위 문서 | `PARTIAL` | current-SHA 문서/code/test parity 재검증 |
+| `DQ-07` 평가 창 밖 구현 | `DRAFT` | deadline 전 meaningful commit/push/remote SHA |
 
-## 6. Gate evidence ledger
+## 6. Gate ledger
 
-| Gate | Done-when | 상태 |
+| Gate | 상태 | 근거 또는 blocker |
 |---|---|---|
-| `G1` | branch + Phase2 PRD/Trade-off/ADR/matrix, remote parity `20fa220df55ef8b1d4a4da4b9695c9824bf507ae` | `PASS` |
-| `G2` | PG 17.10/pgvector 0.8.6, migration `0001`, isolated Docker test `33 passed` | `PASS` |
-| `G3` | unified CorpusStore와 transaction tests | `DRAFT` |
-| `G4` | 실제 PostgreSQL 기반 공식 3경로와 one-line test | `DRAFT` |
-| `G5` | RAG/cache/SSE와 concurrency/race 회귀 | `DRAFT` |
-| `G6` | CI와 README/Architecture/Prompt/Decision/Map 정합 | `DRAFT` |
-| `G7` | clean checkout/readiness + actual Codex/SSE | `DRAFT` |
-| `G8` | DQ 7개와 V1/V2 비교, merge recommendation | `DRAFT` |
+| `G1` | `PASS` | branch + 설계 문서 remote parity |
+| `G2` | `PARTIAL` | migration/Compose local PASS, remote parity pending |
+| `G3` | `PARTIAL` | CorpusStore·transaction code + local DB tests, current-SHA pending |
+| `G4` | `PARTIAL` | 공식 3경로 local Docker PASS, current-SHA pending |
+| `G5` | `PARTIAL` | RAG/cache/SSE/concurrency local regression |
+| `G6` | `PARTIAL` | 문서 정합과 CI/ready/logging 잔여 |
+| `G7` | `DRAFT` | clean clone + actual Codex/SSE |
+| `G8` | `DRAFT` | DQ audit와 V1/V2 비교·제출 결정 |
 
-## 7. Evidence 승격 규칙
+## 7. 승격 금지선
 
-- `DRAFT` → `IMPLEMENTED`: 대상 code가 current SHA에 존재하고 정적 대조가 됨
-- `IMPLEMENTED` → `VERIFIED`: current SHA에서 요구 범위의 실제 command/test/
-  runtime receipt가 PASS
-- 확인할 수 없으면 `UNKNOWN`; 과거 SHA receipt로 현재 claim을 승격하지 않음
-- fake LLM test는 actual Codex/SSE 증거가 아니며, file presence는 runtime proof가
-  아님
+- local dirty-worktree test는 current-SHA receipt가 아닙니다.
+- fake LLM SSE는 actual Codex incremental SSE가 아닙니다.
+- schema field 존재만으로 lookup/write enforcement를 증명하지 않습니다.
+- DEC-010~012는 `PROPOSED`를 유지합니다.
+- current-SHA integration과 live Codex/SSE 전에는 DEC-002/007/008 또는 ADR-0002를
+  `SUPERSEDED`로 바꾸거나 V2를 `VERIFIED`로 표현하지 않습니다.
