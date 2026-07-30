@@ -11,3 +11,4 @@
 | 2026-07-30_002752 | [2026-07-30_002752_retro.md](./2026-07-30_002752_retro.md) | fix: harden prompt and Retrobot evidence boundaries |
 | 2026-07-30_141842 | [2026-07-30_141842_retro.md](./2026-07-30_141842_retro.md) | docs(v2): define postgres pgvector phase 2 |
 | 2026-07-30_151706 | [2026-07-30_151706_retro.md](./2026-07-30_151706_retro.md) | feat(v2): add postgres pgvector migration foundation |
+| 2026-07-30_230751 | [2026-07-30_230751_retro.md](./2026-07-30_230751_retro.md) | feat(v2): enforce p0 cache and prompt contracts |
