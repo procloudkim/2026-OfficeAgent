@@ -2,15 +2,16 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 상태 | `DRAFT` |
+| 문서 상태 | `PARTIAL` — G1·G2 infrastructure는 검증, G3 제품 통합은 DRAFT |
 | 기준선 | V1 `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | 대상 브랜치 | `feat/v2-postgres-pgvector-compose` |
-| claim 상태 | `DRAFT`, `IMPLEMENTED`, `VERIFIED`, `UNKNOWN`만 사용 |
+| claim 상태 | 제품: `DRAFT`/`IMPLEMENTED`/`VERIFIED`/`UNKNOWN`; gate·운영: `PASS`/`PARTIAL`/`DRAFT` |
 
-이 표는 V2 요구사항을 예정 code/test/evidence에 연결한다. 현재 G1에서는 설계
-파일만 존재하므로 제품 구현 행은 모두 `DRAFT`다. 파일명이나 계획만으로 구현·
-검증 완료를 주장하지 않는다. V1의 27-test 및 `e838cc7` live smoke는 역사적
-회귀 기준선이며 V2 증거가 아니다.
+이 표는 V2 요구사항을 code/test/evidence에 연결한다. G1 remote branch와 G2
+database infrastructure만 검증됐다. 제품 composition은 계속 V1 SQLite+Chroma며
+G3 전에는 V2 ingestion/retrieval/cache/SSE를 완료로 주장하지 않는다. 파일명이나
+계획만으로 구현·검증 완료를 주장하지 않는다. V1의 27-test와 `e838cc7` live
+smoke는 역사적 회귀 기준선이며 V2 제품 증거가 아니다.
 
 ## 1. 제품 요구사항 매트릭스
 
@@ -41,11 +42,11 @@
 | `CC-01` | 동일 document ingestion 직렬화 | transaction-scoped advisory lock | concurrent tasks test | `DRAFT` |
 | `CC-02` | 서로 다른 document ingestion의 revision 일관성 | locked singleton revision update | concurrent tasks/revision assertion | `DRAFT` |
 | `CC-03` | LLM 중 revision 변경 시 cache write skip | retrieval snapshot + conditional save | `cache_skip_reason=corpus_changed` | `DRAFT` |
-| `MIG-01` | forward-only SQL, version/checksum/applied timestamp | migration runner + numbered SQL | empty DB/re-run/checksum mismatch | `DRAFT` |
-| `MIG-02` | migration advisory lock과 current-file rollback | migration runner | concurrent runner/failure test | `DRAFT` |
-| `OPS-01` | PostgreSQL 17.10/pgvector 0.8.6 실제 runtime | digest-pinned Compose | `SHOW server_version`, extension `extversion` | `DRAFT` |
+| `MIG-01` | forward-only SQL, version/checksum/applied timestamp | migration runner + numbered SQL | empty DB/re-run/checksum mismatch | `PASS` |
+| `MIG-02` | migration advisory lock과 current-file rollback | migration runner | concurrent/non-prefix/failure rollback | `PASS` |
+| `OPS-01` | PostgreSQL 17.10/pgvector 0.8.6 실제 runtime | digest-pinned Compose | head/version JSON + runtime inspection | `PASS` |
 | `OPS-02` | DB/migration/vector readiness, LLM 미호출 | `/health/ready` | ready/unready integration smoke | `DRAFT` |
-| `OPS-03` | one-line subscription-free integration test | Compose `test` service | clean `docker compose run --rm test` | `DRAFT` |
+| `OPS-03` | one-line subscription-free integration test | Compose `test` service | `33 passed`; clean-down proof is G4 | `PARTIAL` |
 | `OPS-04` | question/document raw text 없는 timing log | structured logging | capture/source review | `DRAFT` |
 
 ## 3. 공식 필수 테스트
@@ -93,8 +94,8 @@ composition에서 더 이상 사용하지 않을 때만 제거한다. 제거 이
 
 | Gate | Done-when | 상태 |
 |---|---|---|
-| `G1` | branch + Phase2 PRD/Trade-off/ADR/matrix DRAFT, commit/push | `DRAFT` |
-| `G2` | DB/Compose/migration/runtime version 증거 | `DRAFT` |
+| `G1` | branch + Phase2 PRD/Trade-off/ADR/matrix, remote parity `20fa220df55ef8b1d4a4da4b9695c9824bf507ae` | `PASS` |
+| `G2` | PG 17.10/pgvector 0.8.6, migration `0001`, isolated Docker test `33 passed` | `PASS` |
 | `G3` | unified CorpusStore와 transaction tests | `DRAFT` |
 | `G4` | 실제 PostgreSQL 기반 공식 3경로와 one-line test | `DRAFT` |
 | `G5` | RAG/cache/SSE와 concurrency/race 회귀 | `DRAFT` |

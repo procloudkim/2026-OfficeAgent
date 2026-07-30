@@ -1,0 +1,30 @@
+# Credentials and developer-local configuration
+.codex/
+.env
+
+# Runtime databases and evaluator/user content
+.data/
+.test-data/
+.pytest-tmp*/
+.pytest_cache/
+sample-docs/
+
+# Local build and editor state
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.coverage
+htmlcov/
+.vscode/
+.idea/
+
+# Repository history and generated process artifacts are not build inputs
+.git/
+retros/
+retrobot/
+docs/

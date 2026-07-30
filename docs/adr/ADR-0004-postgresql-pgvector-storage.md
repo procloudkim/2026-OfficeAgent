@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| Status | `Proposed — DRAFT` |
+| Status | `Proposed — PARTIAL` — G2 infrastructure verified, G3 product composition DRAFT |
 | Date | 2026-07-30 |
 | Baseline | V1 `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | Target | PostgreSQL 17.10 + pgvector 0.8.6 |
@@ -26,9 +26,24 @@ V2는 PostgreSQL 17.10과 pgvector 0.8.6을 유일한 영속 계층으로 사용
 `MetadataStore`/`VectorStore` 분할 mutation을 하나의 `CorpusStore` 또는
 unit-of-work port로 교체한다.
 
-이 결정은 아직 구현되지 않았다. 아래 수용 테스트와 current-SHA evidence가
-모두 생길 때만 Status를 `Accepted — VERIFIED`로 전환하고 ADR-0002의 V1 storage
-결정을 `SUPERSEDED by ADR-0004`로 표시한다. 그전까지 ADR-0002는 V1 정본이다.
+G2에서는 Compose/schema/migration runner와 격리 DB test까지 구현·검증했다.
+G3 `CorpusStore`와 API composition 전까지 제품 runtime은 V1 SQLite/Chroma다.
+아래 수용 테스트와 current-SHA evidence가 모두 생길 때만 Status를
+`Accepted — VERIFIED`로 전환하고 ADR-0002를 `SUPERSEDED by ADR-0004`로
+표시한다. 그전까지 ADR-0002는 V1 제품 정본이다.
+
+## G2 pin-point: Why → What → How → Trade-off → 배운 점
+
+- **Why**: 두 저장소의 partial state와 무효화 race를 G3의 한 transaction으로
+  해결하기 전에, schema와 migration failure boundary를 재현 가능하게 만든다.
+- **What**: PostgreSQL+pgvector, Psycopg 3, numbered SQL과 digest-pinned Compose를
+  G2 infrastructure로 채택했다.
+- **How**: checksum ledger, forward-prefix 검사, advisory lock, migration별 rollback,
+  database-per-test로 `0001` apply/re-run/drift/history/failure/concurrency를 검증했다.
+- **Trade-off**: Docker와 migration 운영비가 추가되고 HA/PITR와 V2 API composition은
+  아직 제공하지 않는다.
+- **배운 점**: 측정하지 않은 성능 우위보다 진실원천과 failure surface를 줄이는
+  선택이 이번 유지보수 경제성의 더 강한 증거다.
 
 ## Transaction invariant
 

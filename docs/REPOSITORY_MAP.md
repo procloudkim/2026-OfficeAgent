@@ -20,20 +20,21 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 
 | 파일 | 책임 |
 |---|---|
-| `README.md` | 한 줄 실행·테스트, API 사용, 핵심 선택 |
-| `ARCHITECTURE.md` | 계층, 데이터 흐름, 실패·보안·trade-off |
+| `README.md` | V1 제품 실행/API와 V2 G2 Docker/migration 검증 경계 |
+| `ARCHITECTURE.md` | V1 제품 흐름과 V2 G2 infrastructure/product 경계 |
 | `PROMPT_DESIGN.md` | grounding·abstention·injection 전략 |
 | `docs/REQUIREMENTS_TRACEABILITY.md` | PRD → 코드 → test/runtime evidence |
 | `docs/PRD_PHASE2.md` | V2 범위·수용 조건 DRAFT |
-| `docs/TRADEOFF_STORAGE_AND_DOCKER.md` | V2 storage/Docker 후보 비교와 선택 근거 DRAFT |
-| `docs/V2_REQUIREMENTS_TRACEABILITY.md` | V2 요구 → 예정 code/test/evidence와 claim 상태 DRAFT |
+| `docs/TRADEOFF_STORAGE_AND_DOCKER.md` | V2 storage/Docker 비교와 G2 구현 선택·학습 PARTIAL |
+| `docs/V2_REQUIREMENTS_TRACEABILITY.md` | G1/G2 PASS와 G3 이후 DRAFT evidence 경계 |
 | `docs/DECISION_LOG.md` | 짧은 Why–What–How 결정 이력 |
 | `docs/adr/ADR-0001-*.md` | 구조·네이밍 governance |
 | `docs/adr/ADR-0002-*.md` | 저장소·검색·캐시 결정 |
 | `docs/adr/ADR-0003-*.md` | Codex·SSE·retry 결정 |
-| `docs/adr/ADR-0004-*.md` | PostgreSQL+pgvector transactional CorpusStore 제안 DRAFT |
+| `docs/adr/ADR-0004-*.md` | G2 infrastructure PARTIAL, G3 product integration DRAFT |
 | `docs/verification/2026-07-28.md` | sanitized command receipt |
 | `docs/verification/2026-07-30-v2-g0.md` | V2 R0/G0 Docker·V1 preflight sanitized receipt |
+| `docs/verification/2026-07-30-v2-g2.md` | V2 migration/Compose/test sanitized runtime receipt |
 
 ## C. 실행 코드
 
@@ -54,6 +55,9 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `src/officeagent/infrastructure/chroma_store.py` | persistent vector adapter |
 | `src/officeagent/infrastructure/sqlite_store.py` | document/cache/dependency adapter |
 | `src/officeagent/infrastructure/codex_app_server.py` | Codex JSON-RPC process/delta adapter |
+| `src/officeagent/infrastructure/migrations.py` | forward-only discovery/checksum/lock/apply/check |
+| `src/officeagent/infrastructure/test_runner.py` | isolated PostgreSQL test DB lifecycle |
+| `src/officeagent/migrations/0001_v2_schema.sql` | initial document/vector/cache/revision schema |
 | package `__init__.py` files | Python package boundaries only |
 | `scripts/live_smoke.py` | optional paid/network production-boundary validator |
 
@@ -72,6 +76,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `tests/test_sqlite_store.py` | version/cache/FK integrity |
 | `tests/test_chroma_store.py` | replace/search cosine behavior |
 | `tests/test_parsers_and_chunking.py` | formats, offsets, stable chunks |
+| `tests/test_migrations.py` | apply/rerun/drift/rollback/history/concurrency integration |
 | `tests/helpers.py` | deterministic fake ports/PDF builder |
 | `tests/conftest.py` | cross-platform test data directory |
 | `tests/__init__.py` | stable helper import under `uv run pytest` |
@@ -80,6 +85,8 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 
 | 파일/경로 | 책임 |
 |---|---|
+| `compose.yaml` | digest-pinned DB, health, migrate와 isolated test topology |
+| `Dockerfile.test`, `.dockerignore` | locked Linux test image와 bounded build context |
 | `pyproject.toml`, `uv.lock` | Python build, locked dependencies, tool config |
 | `.gitignore`, `.gitattributes` | generated exclusion, cross-platform LF contract |
 | `sample-docs/company-policy.txt`, `development-guide.md` | manual/live fixtures |

@@ -15,6 +15,7 @@ dependencies = [
     "fastapi>=0.135,<1",
     "fastembed>=0.7,<1",
     "numpy>=2.0,<3",
+    "psycopg[binary]>=3.2,<4",
     "pydantic-settings>=2.12,<3",
     "pypdf>=6.5,<7",
     "python-multipart>=0.0.20,<1",
@@ -23,6 +24,7 @@ dependencies = [
 
 [project.scripts]
 officeagent = "officeagent.main:run"
+officeagent-migrate = "officeagent.infrastructure.migrations:run"
 
 [dependency-groups]
 dev = [

@@ -2,7 +2,7 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 상태 | `DRAFT` |
+| 문서 상태 | `PARTIAL` — G2 migration·Compose·DB 통합 테스트까지 구현·검증, G3 CorpusStore와 제품 런타임은 미구현 |
 | 결정 | PostgreSQL 17.10 + pgvector 0.8.6 단일 영속 계층 |
 | Docker 범위 | PostgreSQL, migration, offline integration test와 CI |
 | 제외 | API/Codex containerization, Redis, ANN, 별도 vector DB |
@@ -164,3 +164,74 @@ test를 같은 topology로 반복하기 위해서다.
 Local evidence는 `ARCHITECTURE.md`, ADR-0002, V1 storage code/tests와 G0 actual-host
 manifest receipt다. 외부 자료는 제품 선택의 일반 특성을 뒷받침하며 이 repository의
 구현 완료 증거를 대신하지 않는다.
+
+## 10. G2 구현으로 좁힌 결정과 pin-point
+
+이 절은 2026-07-30에 실제 적용·검증한 G2 범위다. schema와 migration runner,
+Compose DB/test topology만 포함한다. ingestion, retrieval, cache invalidation의 제품
+경로와 Codex/SSE는 G3 이후 별도 검증 대상이다.
+
+### 10.1 DB driver: Psycopg 3
+
+- **Why**: 지금은 sync migration CLI가 필요하고 다음 단계에는 async pool과
+  transaction 기반 CorpusStore가 필요하다. driver를 나누면 오류·transaction·지원
+  경계가 하나 더 생긴다.
+- **What**: `psycopg[binary]` 3.3.4를 lock하고 G2 runner에서 사용한다.
+- **How**: session advisory lock, SHA-256 ledger, forward-prefix 검사와 migration별
+  transaction/rollback을 구현했다. Docker test는 apply/rerun, checksum drift,
+  SQL failure rollback, non-prefix history, lock serialization을 실행한다.
+- **Trade-off**: asyncpg도 유효하지만 두 transaction model을 정당화할 측정된
+  이점은 없다. binary wheel도 운영 OS/libpq patch 책임을 없애지는 않는다.
+- **배운 점**: 추정 처리량보다 한 불변식에 필요한 driver·예외·transaction 문법
+  수를 줄이는 것이 유지보수 경제성에 직접적이다.
+
+### 10.2 Immutable migration
+
+- **Why**: vector 차원, extension과 schema version을 암묵적 전제로 두면 clean
+  clone·CI와 운영 DB 차이를 진단하기 어렵다.
+- **What**: `0001_v2_schema.sql`에 vector extension과 `vector(384)` schema를 두고,
+  runtime receipt에 PostgreSQL `17.10`, vector `0.8.6`, head `0001`을 남긴다.
+- **How**: applied checksum이 다르거나 history가 source의 forward-only prefix가
+  아니면 apply 전에 fail closed한다. SQL과 ledger insert는 한 transaction이다.
+- **Trade-off**: 적용된 SQL hot-fix를 포기하고 변경은 새 forward migration으로만
+  한다. extension 설치 권한과 운영 지원은 배포 환경이 별도로 보장해야 한다.
+- **배운 점**: checksum만으로는 부족하다. prefix 검사가 있어야 뒤 migration만
+  있는 DB에 앞 schema를 소급 적용하는 오류를 막는다.
+
+### 10.3 Docker Compose 재현 경계
+
+- **Why**: Docker 목적은 API 전체 포장이 아니라 DB image, extension, readiness,
+  migration과 구독 없는 integration test를 evaluator/CI에서 재현하는 것이다.
+- **What**: digest-pinned pgvector DB와 uv test image, loopback `15432`, named
+  volume, `pg_isready`, `service_healthy`, migrate/test service를 사용한다.
+- **How**: healthy DB 뒤 migration을 적용하고 `docker compose run --rm test`가
+  고유 temporary DB를 생성·검증·삭제한다. admin DB URL은 test service에만 주며
+  shared/production credential 계약으로 사용하지 않는다.
+- **Trade-off**: V1 embedded-only 경로보다 Docker Desktop과 image pull이
+  추가된다. API/Codex containerization은 credential·live SSE 범위를 넓혀 G2에서
+  제외했다.
+- **배운 점**: Compose start order와 readiness는 다르다. healthcheck와
+  `service_healthy`가 초기화 중 DB를 준비 완료로 오인하는 race를 막는다.
+
+### 10.4 실패를 숨기지 않은 수정 영수증
+
+| 관찰된 실패 | 원인 | 수정 | 재검증 의미 |
+|---|---|---|---|
+| Windows `55432` bind 실패 | OS 예약 port range | loopback `15432` | DB healthy와 migration/test 연결 |
+| uv `bookworm-slim` tag pull 실패 | 실제 registry tag 부재 | official guide의 `trixie-slim` digest | lock 기반 image build |
+| `migrate --check` 실행 실패 | Compose가 `--check`를 executable로 해석 | full command `officeagent-migrate --check` | head/runtime JSON 반환 |
+| Retrobot 구조 test 실패 | image에 `.githooks` 누락 | Dockerfile에 COPY | full suite에 구조 test 포함 |
+| non-prefix history backfill 위험 | checksum만 검사 | apply 전 prefix 검사 | schema apply 전 fail closed |
+
+이 표는 모든 미래 실패가 사라졌다는 보장이 아니라, G2에서 관찰한 failure
+boundary와 수정 뒤 재검증 범위다.
+
+## 11. G2 공식 출처 추가
+
+- Psycopg transactions: https://www.psycopg.org/psycopg3/docs/basic/transactions.html
+- Psycopg pools: https://www.psycopg.org/psycopg3/docs/api/pool.html
+- pgvector Python integration: https://github.com/pgvector/pgvector-python
+- PostgreSQL `CREATE EXTENSION`: https://www.postgresql.org/docs/17/sql-createextension.html
+- Docker Compose services: https://docs.docker.com/reference/compose-file/services/
+- Docker Compose readiness: https://docs.docker.com/compose/how-tos/startup-order/
+- uv Docker integration: https://docs.astral.sh/uv/guides/integration/docker/

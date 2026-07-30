@@ -254,3 +254,57 @@
 - Digest-pinned Compose, immutable migration runner와 실제 PostgreSQL/pgvector
   runtime version을 검증한다.
 - 이어서 unified CorpusStore rollback/concurrency test를 먼저 만들고 구현한다.
+
+## 2026-07-30 — V2 G2 PostgreSQL/pgvector migration과 Compose 검증
+
+### Why — 이번 게이트의 문제
+
+- V1 SQLite와 Chroma는 각자 동작하지만 metadata/cache와 vector를 한 transaction으로
+  묶지 못한다. G2는 G3가 사용할 단일 PostgreSQL 경계의 migration·rollback·
+  재현 기반을 실제로 만드는 단계다.
+- evaluator/CI가 같은 DB, extension과 readiness 조건에서 구독 없이 검증할 경로가
+  필요했다.
+
+### What — 실제 추가한 것
+
+- Psycopg 3.3.4, session advisory lock, SHA-256 ledger, forward-prefix 검사,
+  migration별 transaction/rollback과 credential-free JSON receipt를 추가했다.
+- `0001`은 vector extension, `vector(384)` chunk/cache embedding, document version,
+  corpus revision, answer cache/dependency relation을 만든다.
+- Compose는 digest-pinned PostgreSQL 17.10+pgvector 0.8.6, healthcheck, migration과
+  구독 없는 test를 제공한다. test runner는 검증된 이름의 temporary DB만 drop한다.
+
+### How — 실행·검증한 경로
+
+- `docker compose up -d --wait db` 뒤 migration head `0001`, PostgreSQL `17.10`,
+  pgvector `0.8.6`을 확인했다.
+- `docker compose run --rm migrate officeagent-migrate --check`는 재적용 없이 같은
+  head/version을 반환했다.
+- `docker compose run --rm test` 최종 결과는 `33 passed`다. 여섯 migration test가
+  first apply/rerun, checksum drift, failed SQL rollback, non-prefix history
+  fail-before-apply, advisory-lock serialization을 검증한다.
+- host 경로는 `27 passed, 6 skipped`다. 관리자 DB URL은 Docker test service에만
+  주므로 canonical DB 증거는 Compose path다.
+
+### Trade-off — 채택하지 않은 확장
+
+- asyncpg를 별도 도입하지 않았다. sync migration과 다음 async pool을 Psycopg 3로
+  연결해 driver/transaction/error boundary를 하나로 둔다. 측정하지 않은 성능
+  우위는 주장하지 않는다.
+- Redis, ANN, 전문 vector DB와 API/Codex containerization은 추가하지 않았다.
+  PostgreSQL/pgvector 선택도 enterprise vendor SLA 자체를 증명하지 않는다.
+
+### 배운 점 — pin-point
+
+- checksum과 idempotence만으로는 부족하고 applied history prefix를 먼저 검사해야
+  과거 schema backfill 오류를 막는다.
+- Compose의 start order와 readiness는 다르므로 healthcheck와 `service_healthy`가
+  실제 계약이다.
+- ‘Docker가 된다’는 주장은 host port, registry tag와 build context까지 통과해야
+  한다. `55432` 예약, 존재하지 않는 uv bookworm tag, 잘못된 `--check` command,
+  누락된 `.githooks`를 각각 수정하고 재검증했다.
+
+### 아직 주장하지 않는 것
+
+- G3 CorpusStore transaction, retrieval, cache invalidation, concurrent ingest/query,
+  FastAPI wiring, Codex 호출과 SSE live smoke는 G2에서 구현·검증하지 않았다.

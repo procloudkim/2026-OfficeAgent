@@ -194,3 +194,18 @@ FastEmbed와 Codex App Server의 다중 SSE delta와 citation을 확인합니다
 - 동일 질문의 동시 cache miss를 single-flight로 합치지 않아 Codex 중복 호출과
   경쟁 cache write가 가능하며 ingest/query도 직렬화하지 않습니다.
 - citation은 검색 provenance이며 생성 문장에 대한 entailment verifier는 없습니다.
+
+## 10. V2 G2 infrastructure 경계
+
+현재 1~9절은 실제 제품 composition인 V1 SQLite+Chroma를 설명한다. G2는 별도
+PostgreSQL 17.10+pgvector 0.8.6 schema, migration runner와 Compose integration
+test만 추가했다. `bootstrap.py`, ingestion/query와 API는 아직 이 DB를 사용하지
+않으므로 G3 전에는 V2 제품 runtime으로 보지 않는다.
+
+- **Why**: G3 단일 transaction 전 migration·readiness failure를 먼저 격리한다.
+- **What**: Psycopg 3, `0001`, digest-pinned DB/test image와 고유 test DB다.
+- **How**: checksum/prefix/advisory-lock/rollback과 Docker `33 passed`로 검증했다.
+- **Trade-off**: Docker 운영비는 생겼지만 API/Codex credential 경계는 host에
+  보존했다.
+- **배운 점**: infrastructure 실행과 제품 composition 실행을 별도 gate로 두어야
+  Docker 성공을 RAG/SSE 성공으로 과장하지 않는다.

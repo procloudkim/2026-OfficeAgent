@@ -1,0 +1,15 @@
+FROM ghcr.io/astral-sh/uv:0.11.32-python3.12-trixie-slim@sha256:8f1995ceab97517a621cbdd9c795bba9e8119cf6c472e2b9983bc7a70ac5e3e0
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+COPY README.md ./
+COPY src ./src
+COPY .githooks ./.githooks
+
+# The lockfile, not an unconstrained resolver, defines the test environment.
+RUN uv sync --frozen --group dev
+
+COPY tests ./tests
+
+ENV PATH="/app/.venv/bin:${PATH}"

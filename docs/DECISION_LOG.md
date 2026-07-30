@@ -23,6 +23,7 @@ freshness는 Control에서 별도로 추적합니다.
 | DEC-007 | ACTIVE | exact 우선·cosine `0.95` similar cache와 pre-write invalidation/re-index 정책을 사용한다. `CREATED`·`UNCHANGED`는 corpus 전체, `UPDATED`는 document dependency만 무효화한다. | metadata-first ingest 실패와 same-byte retry 사이에 만들어진 old-corpus cache를 순차 retry에서 제거한다. | SQLite `valid`·dependency row와 `IngestionService`가 invalidation 후 embedding/vector 교체를 수행한다. | 정상 same-hash도 전체 cache를 비우며 cross-store atomicity와 동시 recache race는 해결하지 않는다. | `src/officeagent/application/ingestion.py`, `src/officeagent/infrastructure/sqlite_store.py`, `tests/test_cache_invalidation.py` | [ADR-0002](adr/ADR-0002-storage-retrieval-and-cache.md) |
 | DEC-008 | ACTIVE | score-gated retrieval, untrusted-evidence prompt, no-evidence LLM skip, server-generated deterministic citation을 사용한다. | 문서 밖 답변과 모델이 만든 허위 출처를 제한한다. | top-5 중 기본 score `0.30` 이상만 prompt에 넣고 citation은 검색된 `Chunk`에서 만들며 client-controlled metadata를 attribute용으로 escape한다. | threshold는 gold-set 최적값이 아니다. citation은 retrieval provenance이며 model이 각 청크를 사용했는지 또는 answer를 지지하는지 post-generation으로 검증하지 않는다. | `src/officeagent/application/question_answering.py`, `src/officeagent/application/prompts.py`, `PROMPT_DESIGN.md`, `tests/test_retrieval.py`, `tests/test_prompts.py` | — |
 | DEC-009 | ACTIVE | Retrobot은 활성화된 post-commit hook의 Codex-only·bounded-prompt KPT 생성 경로로 운영한다. | commit 단위 과정 증거를 남기되 전역 개인 로그와 다른 project 정보를 prompt payload로 넣지 않는다. | hook이 skill, 최신 `git show`, 선택적 `retros/WORKLOG.md`를 read-only·ephemeral `codex exec`에 전달하고 생성 회고·timeline explicit path만 자동 commit한다. | read-only는 repository read-isolation이 아니며 `core.hooksPath`와 Codex가 필요하다. skip/실패 시 회고가 없고 Claude fallback·별도 수동 경로도 없다. | `.githooks/post-commit`, `retrobot/SKILL.md`, `retrobot/README.md`, `tests/test_retrobot_hook.py` | — |
+| DEC-010 | ACTIVE — V2 G2 | PostgreSQL 17.10+pgvector 0.8.6, Psycopg 3와 digest-pinned Compose를 V2의 단일 영속 기반으로 채택한다. | V1 SQLite/Chroma의 cross-store transaction·backup·health 경계를 줄이고 evaluator/CI에서 같은 DB topology를 재현한다. | immutable numbered SQL, SHA ledger, history prefix, advisory lock, migration rollback과 isolated DB test를 사용한다. | Docker·extension·migration 운영비가 추가되며 G3 CorpusStore, HA/PITR, vendor SLA와 제품 API는 아직 제공하지 않는다. | `compose.yaml`, `src/officeagent/infrastructure/migrations.py`, `tests/test_migrations.py`, `docs/verification/2026-07-30-v2-g2.md` | [ADR-0004](adr/ADR-0004-postgresql-pgvector-storage.md) |
 
 ## History Policy
 
@@ -33,8 +34,10 @@ freshness는 Control에서 별도로 추적합니다.
 - 상세 분석과 대안은 ADR로 이동하고 이 register는 간결하게 유지한다.
 - implementation claim은 실제 code/test와 일치해야 한다.
 - evidence/receipt 상태는 불변 source commit에 연결하고 최신 Submission HEAD는 Control sync에서 갱신한다.
-
 ## Revision History
+
+- 2026-07-30: `DEC-010`에 V2 G2의 PostgreSQL/pgvector, Psycopg와 Compose
+  선택을 등록했다. 제품 composition 전환은 G3 evidence 전까지 주장하지 않는다.
 
 - 2026-07-28: `DEC-001`~`DEC-006`의 기술 선택을 기록했다.
 - 2026-07-29: `DEC-007`이 `DEC-002`에 함께 적혀 있던 cache invalidation/retry

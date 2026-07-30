@@ -1,0 +1,47 @@
+name: officeagent-v2
+
+x-application-service: &application-service
+  image: officeagent-v2-test:local
+  build:
+    context: .
+    dockerfile: Dockerfile.test
+  environment:
+    OFFICEAGENT_DATABASE_URL: postgresql://officeagent:${OFFICEAGENT_POSTGRES_PASSWORD:-officeagent_dev_only}@db:5432/officeagent
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.6-pg17-bookworm@sha256:f193b9c848deb27b0e892f85ed07b53fd83ccb1feb634ba415b1cdc44411bedc
+    environment:
+      POSTGRES_DB: officeagent
+      POSTGRES_USER: officeagent
+      POSTGRES_PASSWORD: ${OFFICEAGENT_POSTGRES_PASSWORD:-officeagent_dev_only}
+    ports:
+      - "127.0.0.1:${OFFICEAGENT_DB_PORT:-15432}:5432"
+    volumes:
+      - officeagent_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  migrate:
+    <<: *application-service
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["officeagent-migrate"]
+
+  test:
+    <<: *application-service
+    environment:
+      OFFICEAGENT_DATABASE_URL: postgresql://officeagent:${OFFICEAGENT_POSTGRES_PASSWORD:-officeagent_dev_only}@db:5432/officeagent
+      OFFICEAGENT_DATABASE_ADMIN_URL: postgresql://officeagent:${OFFICEAGENT_POSTGRES_PASSWORD:-officeagent_dev_only}@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "officeagent.infrastructure.test_runner", "-q"]
+
+volumes:
+  officeagent_postgres_data:

@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     sqlite_filename: str = "officeagent.sqlite3"
     chroma_directory_name: str = "chroma"
     chroma_collection: str = "document_chunks_v1"
+    database_url: str = (
+        "postgresql://officeagent:officeagent_dev_only@127.0.0.1:15432/officeagent"
+    )
 
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     embedding_dimension: int = 384

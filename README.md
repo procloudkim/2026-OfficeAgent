@@ -120,6 +120,7 @@ uv run python scripts/live_smoke.py
 | `OFFICEAGENT_RETRIEVAL_LIMIT` | `5` |
 | `OFFICEAGENT_MINIMUM_RELEVANCE_SCORE` | `0.30` |
 | `OFFICEAGENT_CACHE_SIMILARITY_THRESHOLD` | `0.95` |
+| `OFFICEAGENT_DATABASE_URL` | V2 G2 기본 `postgresql://…@127.0.0.1:15432/officeagent`; 제품 사용은 G3 이후 |
 | `OFFICEAGENT_CODEX_FIRST_DELTA_TIMEOUT_SECONDS` | `45` |
 | `OFFICEAGENT_CODEX_OVERALL_TIMEOUT_SECONDS` | `120` |
 | `OFFICEAGENT_CODEX_MAX_CONCURRENT_REQUESTS` | `2` |
@@ -142,3 +143,43 @@ uv run python scripts/live_smoke.py
 SQLite–Chroma cross-store 원자성, ingest/query 동시성, 동일 질문 cache miss의
 single-flight, citation과 생성 문장 사이의 의미 검증도 구현하지 않았습니다.
 구현하지 않은 기능을 문서에서 구현 완료로 표시하지 않습니다.
+
+## V2 브랜치: PostgreSQL/pgvector 인프라 (G2)
+
+이 브랜치는 V1을 보존하면서 단계적으로 전환한다. 현재 검증 범위는
+PostgreSQL 17.10 + pgvector 0.8.6 Compose, checksum을 강제하는 forward-only
+migration `0001`, 그리고 LLM 구독 없이 격리 DB에서 실행한 Docker test
+`33 passed`다. **G3 CorpusStore와 API 제품 통합은 아직 구현하지 않았다.** 따라서
+현재 `uv run officeagent` 제품 composition은 계속 V1 SQLite+Chroma를 사용한다.
+Docker는 이 단계에서 DB, migration과 test만 소유하며 Codex App Server는 host에
+남는다.
+
+```bash
+# 구독·LLM 호출 없이 실행하는 V2 canonical one-line integration test
+docker compose run --rm test
+
+# migration 적용 및 현재 head/version 검사
+docker compose run --rm migrate officeagent-migrate
+docker compose run --rm migrate officeagent-migrate --check
+```
+
+DB는 기본적으로 `127.0.0.1:15432`에만 공개된다. Windows Application Control이
+생성된 `officeagent-migrate` shim을 차단하는 환경에서는 다음 policy-safe module
+경로를 사용할 수 있다. Linux Compose의 console-script 경로는 위 명령으로 실제
+검증했다. 이 host fallback 역시 `docker compose up -d --wait db`로 DB가 먼저
+healthy여야 한다.
+
+```powershell
+uv run --frozen python -m officeagent.infrastructure.migrations --check
+```
+
+- **Why**: V1 SQLite metadata/cache와 Chroma vector write를 한 transaction으로
+  묶을 수 없어 partial-state 복구 경계가 둘이다.
+- **What**: PostgreSQL 17.10, pgvector 0.8.6, Psycopg 3.3.4와 numbered SQL을
+  선택했다.
+- **How**: image digest, DB healthcheck, migration advisory lock, checksum ledger,
+  forward-prefix 검사, migration별 rollback, test마다 고유 DB 생명주기로 검증한다.
+- **Trade-off**: Docker·migration 운영비가 추가되며, 아직 HA/PITR나 V2 API
+  composition을 제공하지 않는다.
+- **배운 점**: 측정하지 않은 성능 우위보다 driver·transaction·backup·health의
+  failure surface를 줄이는 편이 이번 유지보수 경제성을 더 직접적으로 증명한다.
