@@ -10,3 +10,4 @@
 | 2026-07-30_001916 | [2026-07-30_001916_retro.md](./2026-07-30_001916_retro.md) | docs(retro): add applicant review for 2026-07-28 work |
 | 2026-07-30_002752 | [2026-07-30_002752_retro.md](./2026-07-30_002752_retro.md) | fix: harden prompt and Retrobot evidence boundaries |
 | 2026-07-30_141842 | [2026-07-30_141842_retro.md](./2026-07-30_141842_retro.md) | docs(v2): define postgres pgvector phase 2 |
+| 2026-07-30_151706 | [2026-07-30_151706_retro.md](./2026-07-30_151706_retro.md) | feat(v2): add postgres pgvector migration foundation |
