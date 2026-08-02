@@ -9,13 +9,13 @@ Retrobot은 활성화된 post-commit 훅이 Codex에 제한된 커밋 문맥을 
 ## 동작 방식
 
 1. `git commit` 완료 후 `.githooks/post-commit` 훅이 트리거됨
-2. 훅이 `codex exec`에 `retrobot/SKILL.md`, 최신 커밋의 SHA·시각·aggregate
-   shortstat와 `retros/WORKLOG.md`의 최신 날짜 구간 하나만 전달. 이전 로그·commit
-   제목·파일명·작성자·diff는 전달하지 않음
+2. 훅이 commit blob에서 `retrobot/SKILL.md`와 `retros/WORKLOG.md`의 최신 날짜 H2
+   하나를 읽고 SHA·시각·aggregate shortstat와 함께 전달. 이전 로그·commit 제목·
+   파일명·작성자·diff는 전달하지 않음
 3. 훅은 Codex를 read-only·ephemeral·never-approve 설정으로 실행하고,
    SKILL은 명시적으로 전달된 입력만 근거로 사용하도록 지시
-4. 생성 성공 시 방금 만든 KPT 회고와 `retros/TIMELINE.md` 두 path만 stage해
-   `docs(retro): 자동 회고 생성 by Retrobot` 메시지로 자동 커밋
+4. Git-dir lock과 HEAD/index/path preimage를 재검사하고, 생성 성공 시 KPT 회고와
+   `retros/TIMELINE.md` 두 path만 stage해 기준 SHA가 그대로일 때만 원자적으로 commit
 
 훅은 위 자동 회고 커밋, `RETROBOT_SKIP=1`, skill 파일 부재, Codex CLI 부재
 또는 생성 실패 시 회고 생성을 건너뜁니다. Claude fallback은 구현되어 있지

@@ -510,8 +510,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             source_environment=os.environ,
             timeout_seconds=args.timeout_seconds,
         )
-    except RetrobotGuardError:
-        print("Retrobot guard rejected the Codex execution or output.", file=sys.stderr)
+    except RetrobotGuardError as error:
+        print(f"Retrobot guard rejected: {error}", file=sys.stderr)
         return 1
     return 0
 

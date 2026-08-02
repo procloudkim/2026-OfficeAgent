@@ -20,6 +20,6 @@ COPY tests ./tests
 COPY Dockerfile.test .dockerignore ./
 COPY retrobot/SKILL.md ./retrobot/
 COPY retros/WORKLOG.md ./retros/
-COPY scripts/__init__.py scripts/live_smoke.py scripts/live_smoke_contract.py scripts/retrobot_guard.py ./scripts/
+COPY scripts/__init__.py scripts/live_smoke.py scripts/live_smoke_contract.py scripts/retrobot_context.py scripts/retrobot_guard.py ./scripts/
 
 ENV PATH="/app/.venv/bin:${PATH}"

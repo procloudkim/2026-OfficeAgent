@@ -386,8 +386,8 @@
   검증하고 답변 본문, DB URL과 data path를 receipt에서 제외하도록 TDD했다.
 - Docker test image는 필요한 smoke script만 copy하고 Node, Codex, credential env와
   `.codex` 부재 gate를 유지했다.
-- Retrobot은 commit 제목·파일명·작성자 없이 SHA, commit 시각과 aggregate shortstat만
-  전송한다. child env는 neutral HOME과 실제 auth용 `CODEX_HOME`, credential-free
+- Retrobot은 commit 제목·파일명·작성자 없이 commit blob의 최신 WORKLOG H2와 SHA,
+  commit 시각, aggregate shortstat만 전송한다. child env는 neutral HOME과 실제 auth용 `CODEX_HOME`, credential-free
   proxy·certificate 경로만 허용하고 user config/rules와 shell tool을 끈다.
 - Codex 실행 전 prompt의 환경 민감 값·identity·credential URI를 검사한다. 실행은
   300초로 제한하고 생성물은 publish 전에 64 KiB, UTF-8, heading 순서, commit SHA와
@@ -397,19 +397,20 @@
 ### 검증
 
 - WSL2 Docker client/server, Compose와 `hello-world`를 확인했다.
-- current worktree의 Docker suite → `127 passed in 8.79s`.
-- current worktree의 host suite → `109 passed, 18 expected skips in 25.65s`.
+- current worktree의 Docker suite → `134 passed in 9.25s`.
+- current worktree의 host suite → `116 passed, 18 expected skips in 24.33s`.
+- Retrobot context·hook·guard 집중 suite → `48 passed`.
 - Ruff, `uv lock --check`, Compose config, hook syntax와 diff check를 통과했다.
 - Codex를 호출하지 않는 readiness-only smoke의 실제 Uvicorn `/health/ready`는
   HTTP `200`, `ready`, migration head `0001`, pgvector `0.8.6`을 반환했고 종료 뒤
   `officeagent_test_%` database 잔존 수는 `0`이었다.
 - 최종 감사 runner는 ignored `.env`를 배제하고 local database target만 allowlist하며,
   Codex workspace basename을 고정하고 disposable root containment를 검증한다.
-- Retrobot의 prompt를 고정 skill, commit SHA·시각·aggregate shortstat와 WORKLOG의
-  최신 날짜 구간 하나로 축소했다. 이전 로그·commit 제목·파일명·작성자·diff 부재와
-  16 KiB prompt·8 KiB 구간 상한을 회귀로 고정하고, test image도 필요한 self-contract
-  파일만 exact allowlist한다. 이 경계는 provider-side privacy나 repository의
-  OS-level read isolation을 증명하지 않는다.
+- Retrobot은 commit blob의 skill과 WORKLOG에서 최신 날짜 H2 하나만 추출한다. 다음
+  임의 H2에서 멈추고 8,192/8,193-byte 경계를 검사하며, Git-dir lock·HEAD/index/path
+  preimage·게시 전 hash·conditional ref update로 동시 실행과 stale-parent commit을
+  fail-closed 처리한다. 이 경계는 provider-side privacy나 repository의 OS-level
+  read isolation을 증명하지 않는다.
 - fresh-run 귀속용 64-hex instance nonce는 설정된 감사 실행에서만 readiness에
   echo하며, 기본 3필드 응답과 readiness-only receipt는 그대로 유지한다.
 
@@ -417,8 +418,8 @@
 
 - 실제 Codex HTTP/SSE live smoke의 sample fixture context 외부 전송은 승인됐으며,
   final current-SHA 실행 전까지 live `VERIFIED`를 주장하지 않는다.
-- 제품 commit `873e155`의 첫 Retrobot 호출은 출력 계약을 통과하지 못해 회고를
-  publish하지 않았다. 최신 로그 단일 구간 경계로 재구성한 뒤 실제 hook·자동 commit을
-  다시 검증한다. 인증에는 실제 `CODEX_HOME` 접근이 필요하며 auth 자체의 provider/CLI
-  경계는 이 로컬 guard가 증명하지 않는다.
+- 제품 commit `873e155`와 보완 commit `2111b2e`의 Retrobot 호출은 출력 계약을
+  통과하지 못해 회고를 publish하지 않았다. guard는 고정된 거절 사유만 출력하도록
+  보강했으며 다음 실제 hook에서 원인을 확인한다. 인증에는 실제 `CODEX_HOME` 접근이
+  필요하며 auth 자체의 provider/CLI 경계는 이 로컬 guard가 증명하지 않는다.
 - clean checkout, remote parity와 final recorder/audit은 최종 commit 뒤 실행한다.

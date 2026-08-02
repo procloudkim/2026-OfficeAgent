@@ -6,16 +6,24 @@
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$REPO_ROOT" || exit 0
 
-LAST_MSG=$(git log -1 --pretty=%s 2>/dev/null)
+COMMIT_SHA=$(git rev-parse HEAD 2>/dev/null) || exit 0
+case "$COMMIT_SHA" in
+    *[!0-9a-f]*) exit 0 ;;
+esac
+if [ "${#COMMIT_SHA}" -ne 40 ] && [ "${#COMMIT_SHA}" -ne 64 ]; then
+    exit 0
+fi
+LAST_MSG=$(git log -1 --format=%s "$COMMIT_SHA" 2>/dev/null)
 case "$LAST_MSG" in
     "docs(retro): 자동 회고 생성 by Retrobot") exit 0 ;;
 esac
 
-SKILL_PATH="${REPO_ROOT}/retrobot/SKILL.md"
-WORKLOG_PATH="${REPO_ROOT}/retros/WORKLOG.md"
+SKILL_RELPATH="retrobot/SKILL.md"
+WORKLOG_RELPATH="retros/WORKLOG.md"
 GUARD_PATH="${REPO_ROOT}/scripts/retrobot_guard.py"
+CONTEXT_PATH="${REPO_ROOT}/scripts/retrobot_context.py"
 
-if [ ! -f "$SKILL_PATH" ] || [ ! -f "$GUARD_PATH" ] || [ "${RETROBOT_SKIP:-0}" = "1" ]; then
+if [ ! -f "$GUARD_PATH" ] || [ ! -f "$CONTEXT_PATH" ] || [ "${RETROBOT_SKIP:-0}" = "1" ]; then
     exit 0
 fi
 
@@ -29,6 +37,20 @@ PYTHON_BIN=$(command -v python3 2>/dev/null)
 if [ -z "$PYTHON_BIN" ]; then
     PYTHON_BIN=$(command -v python 2>/dev/null)
 fi
+
+FLOCK_BIN=$(command -v flock 2>/dev/null)
+if [ -z "$FLOCK_BIN" ]; then
+    echo "ℹ Retrobot: flock을 찾지 못해 동시 실행을 안전하게 막을 수 없습니다."
+    exit 0
+fi
+GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit 0
+LOCK_PATH="${GIT_DIR}/retrobot.lock"
+umask 077
+exec 9>"$LOCK_PATH" || exit 0
+if ! "$FLOCK_BIN" -n 9; then
+    echo "ℹ Retrobot: 다른 회고 실행이 진행 중이라 생성을 건너뜁니다."
+    exit 0
+fi
 if [ -z "$PYTHON_BIN" ]; then
     echo "ℹ Retrobot: Python을 찾지 못해 회고 생성을 건너뜁니다."
     exit 0
@@ -41,27 +63,83 @@ RETRO_PATH="retros/${STAMP}_retro.md"
 TIMELINE_PATH="retros/TIMELINE.md"
 RETRO_ABS_PATH="${REPO_ROOT}/${RETRO_PATH}"
 TIMELINE_ABS_PATH="${REPO_ROOT}/${TIMELINE_PATH}"
-TEMP_ABS_PATH=$(mktemp "${REPO_ROOT}/retros/.retrobot-output.XXXXXX") || exit 0
+TEMP_ABS_PATH=$(mktemp "${GIT_DIR}/retrobot-output.XXXXXX") || exit 0
+SKILL_SNAPSHOT_PATH=
 WORKLOG_SECTION_PATH=
 TIMELINE_NEXT=
 TIMELINE_BACKUP=
 RETROBOT_RUN_DIR=
 TIMELINE_HAD_ORIGINAL=0
+RETRO_PREEXISTED=0
 PUBLISHED=0
 COMMITTED=0
+PUBLISHED_RETRO_HASH=
+PUBLISHED_TIMELINE_HASH=
+
+committed_file_matches_worktree() {
+    relative_path=$1
+    absolute_path="${REPO_ROOT}/${relative_path}"
+    [ -f "$absolute_path" ] && [ ! -L "$absolute_path" ] || return 1
+    committed_blob=$(git rev-parse "${COMMIT_SHA}:${relative_path}" 2>/dev/null) || return 1
+    worktree_blob=$(git hash-object --path="$relative_path" --filters "$absolute_path" 2>/dev/null) \
+        || return 1
+    [ "$worktree_blob" = "$committed_blob" ]
+}
+
+execution_inputs_match_commit() {
+    committed_file_matches_worktree ".githooks/post-commit" \
+        && committed_file_matches_worktree "scripts/retrobot_guard.py" \
+        && committed_file_matches_worktree "scripts/retrobot_context.py"
+}
+
+timeline_matches_preimage() {
+    [ "$(git rev-parse HEAD 2>/dev/null)" = "$COMMIT_SHA" ] || return 1
+    [ "$RETRO_PREEXISTED" = "0" ] || return 1
+    [ ! -e "$RETRO_ABS_PATH" ] || return 1
+    git ls-files --error-unmatch "$RETRO_PATH" >/dev/null 2>&1 && return 1
+    git diff --quiet "$COMMIT_SHA" -- "$TIMELINE_PATH" || return 1
+    git diff --cached --quiet "$COMMIT_SHA" -- "$TIMELINE_PATH" || return 1
+    git diff --cached --quiet "$COMMIT_SHA" -- . || return 1
+    if git cat-file -e "${COMMIT_SHA}:${TIMELINE_PATH}" 2>/dev/null; then
+        [ -f "$TIMELINE_ABS_PATH" ] && [ ! -L "$TIMELINE_ABS_PATH" ]
+    else
+        [ ! -e "$TIMELINE_ABS_PATH" ] \
+            && ! git ls-files --error-unmatch "$TIMELINE_PATH" >/dev/null 2>&1
+    fi
+}
+
+published_paths_are_owned() {
+    [ "$(git rev-parse HEAD 2>/dev/null)" = "$COMMIT_SHA" ] || return 1
+    [ -f "$RETRO_ABS_PATH" ] && [ ! -L "$RETRO_ABS_PATH" ] || return 1
+    [ -f "$TIMELINE_ABS_PATH" ] && [ ! -L "$TIMELINE_ABS_PATH" ] || return 1
+    [ "$(git hash-object "$RETRO_ABS_PATH" 2>/dev/null)" = "$PUBLISHED_RETRO_HASH" ] \
+        || return 1
+    [ "$(git hash-object "$TIMELINE_ABS_PATH" 2>/dev/null)" = "$PUBLISHED_TIMELINE_HASH" ] \
+        || return 1
+    [ "$(git rev-parse ":${RETRO_PATH}" 2>/dev/null)" = "$PUBLISHED_RETRO_HASH" ] \
+        || return 1
+    [ "$(git rev-parse ":${TIMELINE_PATH}" 2>/dev/null)" = "$PUBLISHED_TIMELINE_HASH" ]
+}
 
 cleanup_retrobot() {
     if [ "$PUBLISHED" = "1" ] && [ "$COMMITTED" != "1" ]; then
-        git reset -q HEAD -- "$RETRO_PATH" "$TIMELINE_PATH" 2>/dev/null || true
-        rm -f -- "$RETRO_ABS_PATH"
-        if [ "$TIMELINE_HAD_ORIGINAL" = "1" ] && [ -n "$TIMELINE_BACKUP" ]; then
-            mv -f -- "$TIMELINE_BACKUP" "$TIMELINE_ABS_PATH" 2>/dev/null || true
-            TIMELINE_BACKUP=
+        if published_paths_are_owned; then
+            git reset -q HEAD -- "$RETRO_PATH" "$TIMELINE_PATH" 2>/dev/null || true
+            rm -f -- "$RETRO_ABS_PATH"
+            if [ "$TIMELINE_HAD_ORIGINAL" = "1" ] && [ -n "$TIMELINE_BACKUP" ]; then
+                mv -f -- "$TIMELINE_BACKUP" "$TIMELINE_ABS_PATH" 2>/dev/null || true
+                TIMELINE_BACKUP=
+            else
+                rm -f -- "$TIMELINE_ABS_PATH"
+            fi
         else
-            rm -f -- "$TIMELINE_ABS_PATH"
+            echo "ℹ Retrobot: 게시 경로 소유권이 달라 자동 rollback하지 않습니다."
         fi
     fi
     rm -f -- "$TEMP_ABS_PATH"
+    if [ -n "$SKILL_SNAPSHOT_PATH" ]; then
+        rm -f -- "$SKILL_SNAPSHOT_PATH"
+    fi
     if [ -n "$WORKLOG_SECTION_PATH" ]; then
         rm -f -- "$WORKLOG_SECTION_PATH"
     fi
@@ -82,39 +160,29 @@ cleanup_retrobot() {
 trap cleanup_retrobot EXIT
 trap 'exit 1' HUP INT TERM
 
-if [ -e "$RETRO_ABS_PATH" ]; then
-    echo "ℹ Retrobot: 같은 시각의 회고가 이미 있어 생성을 건너뜁니다."
+if ! execution_inputs_match_commit; then
+    echo "ℹ Retrobot: hook 실행 파일에 미커밋 변경이 있어 생성을 건너뜁니다."
     exit 0
 fi
-if [ ! -f "$WORKLOG_PATH" ]; then
-    echo "ℹ Retrobot: 제한 작업 로그가 없어 회고 생성을 건너뜁니다."
+if ! timeline_matches_preimage; then
+    echo "ℹ Retrobot: HEAD·index·회고 경로가 기준 commit과 달라 생성을 건너뜁니다."
     exit 0
 fi
 
-WORKLOG_SECTION_PATH=$(mktemp "${REPO_ROOT}/retros/.retrobot-worklog.XXXXXX") || exit 0
-if ! awk '
-/^## [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] — / {
-    section = ""
-    found = 1
-}
-found { section = section $0 ORS }
-END {
-    if (!found) {
-        exit 1
-    }
-    printf "%s", section
-}
-' "$WORKLOG_PATH" >"$WORKLOG_SECTION_PATH"; then
+SKILL_SNAPSHOT_PATH=$(mktemp "${GIT_DIR}/retrobot-skill.XXXXXX") || exit 0
+WORKLOG_SECTION_PATH=$(mktemp "${GIT_DIR}/retrobot-worklog.XXXXXX") || exit 0
+if ! git show "${COMMIT_SHA}:${SKILL_RELPATH}" >"$SKILL_SNAPSHOT_PATH" \
+    || [ ! -s "$SKILL_SNAPSHOT_PATH" ]; then
+    echo "ℹ Retrobot: committed skill을 읽지 못해 회고 생성을 건너뜁니다."
+    exit 0
+fi
+if ! git show "${COMMIT_SHA}:${WORKLOG_RELPATH}" \
+    | "$PYTHON_BIN" "$CONTEXT_PATH" >"$WORKLOG_SECTION_PATH"; then
     echo "ℹ Retrobot: 최신 작업 로그 구간을 추출하지 못해 회고 생성을 건너뜁니다."
     exit 0
 fi
-WORKLOG_SECTION_BYTES=$(LC_ALL=C wc -c <"$WORKLOG_SECTION_PATH")
-if [ ! -s "$WORKLOG_SECTION_PATH" ] || [ "$WORKLOG_SECTION_BYTES" -gt 8192 ]; then
-    echo "ℹ Retrobot: 최신 작업 로그 구간이 비었거나 8 KiB를 초과해 건너뜁니다."
-    exit 0
-fi
-if ! git diff --quiet -- "$TIMELINE_PATH" || ! git diff --cached --quiet -- "$TIMELINE_PATH"; then
-    echo "ℹ Retrobot: 기존 타임라인 변경을 보호하기 위해 생성을 건너뜁니다."
+if [ ! -s "$WORKLOG_SECTION_PATH" ]; then
+    echo "ℹ Retrobot: 최신 작업 로그 구간이 비어 생성을 건너뜁니다."
     exit 0
 fi
 
@@ -123,8 +191,7 @@ RETROBOT_RUN_DIR=$(mktemp -d /tmp/officeagent-retrobot.XXXXXX) || {
     exit 0
 }
 
-COMMIT_SHA=$(git log -1 --format=%H 2>/dev/null)
-COMMITTED_AT=$(git log -1 --format=%cI 2>/dev/null)
+COMMITTED_AT=$(git log -1 --format=%cI "$COMMIT_SHA" 2>/dev/null)
 COMMIT_SHORTSTAT=$(LC_ALL=C git diff-tree --shortstat --no-commit-id --root "$COMMIT_SHA" 2>/dev/null | sed -n '$p')
 if [ -z "$COMMIT_SHORTSTAT" ]; then
     COMMIT_SHORTSTAT="0 files changed"
@@ -133,7 +200,7 @@ fi
 echo "🤖 Retrobot: 회고 생성 중..."
 
 {
-    cat "$SKILL_PATH"
+    cat "$SKILL_SNAPSHOT_PATH"
     printf "\n\n## 이번 실행 입력\n\n"
     printf "### 최신 커밋\n\n"
     printf "full_sha=%s\n" "$COMMIT_SHA"
@@ -150,8 +217,7 @@ echo "🤖 Retrobot: 회고 생성 중..."
     --run-directory "$RETROBOT_RUN_DIR" \
     --output "$TEMP_ABS_PATH" \
     --commit-sha "$COMMIT_SHA" \
-    --timeout-seconds 300 \
-    2>/dev/null
+    --timeout-seconds 300
 CODEX_STATUS=$?
 
 if [ "$CODEX_STATUS" -ne 0 ] || [ ! -s "$TEMP_ABS_PATH" ]; then
@@ -159,11 +225,15 @@ if [ "$CODEX_STATUS" -ne 0 ] || [ ! -s "$TEMP_ABS_PATH" ]; then
     echo "ℹ Retrobot: 제한 실행 또는 출력 검증에 실패해 회고를 남기지 않습니다."
     exit 0
 fi
+if ! timeline_matches_preimage; then
+    echo "ℹ Retrobot: 생성 중 HEAD·index·회고 경로가 바뀌어 게시하지 않습니다."
+    exit 0
+fi
 
-TIMELINE_NEXT=$(mktemp "${REPO_ROOT}/retros/.retrobot-timeline-next.XXXXXX") || exit 0
+TIMELINE_NEXT=$(mktemp "${GIT_DIR}/retrobot-timeline-next.XXXXXX") || exit 0
 if [ -f "$TIMELINE_ABS_PATH" ]; then
     TIMELINE_HAD_ORIGINAL=1
-    TIMELINE_BACKUP=$(mktemp "${REPO_ROOT}/retros/.retrobot-timeline-backup.XXXXXX") || exit 0
+    TIMELINE_BACKUP=$(mktemp "${GIT_DIR}/retrobot-timeline-backup.XXXXXX") || exit 0
     cp -p -- "$TIMELINE_ABS_PATH" "$TIMELINE_BACKUP" || exit 0
     cp -- "$TIMELINE_ABS_PATH" "$TIMELINE_NEXT" || exit 0
 else
@@ -179,20 +249,47 @@ printf "| %s | [%s](./%s) | %s |\n" \
     "$(basename "$RETRO_PATH")" \
     "$COMMIT_SHA" >>"$TIMELINE_NEXT"
 
+if ! timeline_matches_preimage; then
+    echo "ℹ Retrobot: 게시 직전 HEAD·index·회고 경로가 바뀌어 중단합니다."
+    exit 0
+fi
+PUBLISHED_RETRO_HASH=$(git hash-object "$TEMP_ABS_PATH") || exit 0
+PUBLISHED_TIMELINE_HASH=$(git hash-object "$TIMELINE_NEXT") || exit 0
 mv -- "$TEMP_ABS_PATH" "$RETRO_ABS_PATH" || exit 0
-PUBLISHED=1
-mv -- "$TIMELINE_NEXT" "$TIMELINE_ABS_PATH" || exit 0
+if ! mv -- "$TIMELINE_NEXT" "$TIMELINE_ABS_PATH"; then
+    rm -f -- "$RETRO_ABS_PATH"
+    exit 0
+fi
 TIMELINE_NEXT=
-
-if ! git add -- "$RETRO_PATH" "$TIMELINE_PATH"; then
-    echo "ℹ Retrobot: 생성 파일 stage에 실패해 변경을 되돌립니다."
+if [ "$(git hash-object "$RETRO_ABS_PATH" 2>/dev/null)" != "$PUBLISHED_RETRO_HASH" ] \
+    || [ "$(git hash-object "$TIMELINE_ABS_PATH" 2>/dev/null)" != "$PUBLISHED_TIMELINE_HASH" ]; then
+    echo "ℹ Retrobot: 게시 중 경로 내용이 바뀌어 자동 commit하지 않습니다."
     exit 0
 fi
 
-if git commit -m "docs(retro): 자동 회고 생성 by Retrobot" \
-    --no-verify -- "$RETRO_PATH" "$TIMELINE_PATH"; then
+if ! git add -- "$RETRO_PATH" "$TIMELINE_PATH"; then
+    echo "ℹ Retrobot: 생성 파일 stage에 실패해 경로를 그대로 두고 중단합니다."
+    exit 0
+fi
+PUBLISHED=1
+if ! published_paths_are_owned; then
+    echo "ℹ Retrobot: stage 뒤 HEAD 또는 게시 경로가 바뀌어 자동 commit하지 않습니다."
+    exit 0
+fi
+EXPECTED_STAGED_PATHS=$(printf "%s\n%s\n" "$TIMELINE_PATH" "$RETRO_PATH" | LC_ALL=C sort)
+ACTUAL_STAGED_PATHS=$(git diff --cached --name-only "$COMMIT_SHA")
+if [ "$ACTUAL_STAGED_PATHS" != "$EXPECTED_STAGED_PATHS" ]; then
+    echo "ℹ Retrobot: 예상하지 않은 staged path가 있어 자동 commit하지 않습니다."
+    exit 0
+fi
+
+RETRO_TREE=$(git write-tree) || exit 0
+RETRO_COMMIT=$(printf "%s\n" "docs(retro): 자동 회고 생성 by Retrobot" \
+    | git commit-tree "$RETRO_TREE" -p "$COMMIT_SHA") || exit 0
+if git update-ref -m "commit: docs(retro): 자동 회고 생성 by Retrobot" \
+    HEAD "$RETRO_COMMIT" "$COMMIT_SHA"; then
     COMMITTED=1
     echo "✅ Retrobot: ${RETRO_PATH} 생성 및 커밋 완료"
 else
-    echo "ℹ Retrobot: 자동 회고 commit에 실패해 변경을 되돌립니다."
+    echo "ℹ Retrobot: HEAD가 바뀌어 자동 회고 commit을 게시하지 않습니다."
 fi

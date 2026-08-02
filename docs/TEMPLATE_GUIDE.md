@@ -68,11 +68,12 @@ symlink 지원 여부는 별도로 확인해야 합니다.
 
 1. 지원자가 일반 `git commit`을 완료합니다.
 2. `.githooks/post-commit`이 `codex exec`를 실행합니다.
-3. prompt payload는 `retrobot/SKILL.md`, 최신 커밋 SHA·시각·aggregate shortstat와
-   `retros/WORKLOG.md`의 최신 날짜 구간 하나로 제한됩니다. 이전 로그·commit 제목·
+3. prompt payload는 commit blob의 `retrobot/SKILL.md`, 최신 커밋 SHA·시각·aggregate
+   shortstat와 `retros/WORKLOG.md`의 최신 날짜 H2 하나로 제한됩니다. 이전 로그·commit 제목·
    파일명·작성자·diff와 전역 `~/.codex`·`~/.claude` log는 전달하지 않습니다.
    read-only는 repository read-isolation 보장이 아닙니다.
-4. 성공한 Markdown과 `retros/TIMELINE.md` 두 path만
+4. Git-dir lock과 HEAD/index/path preimage를 재검사한 뒤 성공한 Markdown과
+   `retros/TIMELINE.md` 두 path만
    `docs(retro): 자동 회고 생성 by Retrobot` 제목으로 자동 commit합니다.
 5. hook은 그 정확한 자동 제목, `RETROBOT_SKIP=1`, skill/CLI 부재 또는 생성
    실패에서 종료합니다. Claude fallback과 별도 수동 실행은 없습니다.

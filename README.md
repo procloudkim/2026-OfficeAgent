@@ -46,9 +46,10 @@ Codex 설치·로그인은 최초 한 번 수행합니다.
 npm install -g @openai/codex@0.146.0 && codex login
 ```
 
-Retrobot은 고정 skill, commit SHA·시각·aggregate shortstat와 WORKLOG의 최신 날짜
-구간 하나만 외부 Codex에 보냅니다. 이전 로그·commit 제목·파일명·작성자·diff는
-전송하지 않으며 prompt 전체는 16 KiB, 로그 구간은 8 KiB로 제한합니다. 환경
+Retrobot은 해당 commit에 저장된 고정 skill, SHA·시각·aggregate shortstat와
+WORKLOG의 최신 날짜 H2 하나만 외부 Codex에 보냅니다. 이전 로그·commit 제목·
+파일명·작성자·diff는 전송하지 않으며 prompt 전체는 16 KiB, 로그 구간은 8 KiB로
+제한합니다. 환경
 allowlist, 빈 cwd, read-only sandbox, shell 비활성화, timeout과 출력 검증을
 fail-closed로 적용합니다. 인증에는 실제 `CODEX_HOME`만 사용합니다.
 

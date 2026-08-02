@@ -61,16 +61,18 @@ def test_retrobot_cleans_its_disposable_directory_safely() -> None:
 
 
 def test_retrobot_keeps_prompt_and_output_out_of_the_disposable_directory() -> None:
-    assert 'SKILL_PATH="${REPO_ROOT}/retrobot/SKILL.md"' in HOOK
-    assert 'WORKLOG_PATH="${REPO_ROOT}/retros/WORKLOG.md"' in HOOK
-    assert 'WORKLOG_SECTION_PATH=$(mktemp "${REPO_ROOT}/retros/.retrobot-worklog.XXXXXX")' in HOOK
-    assert 'TEMP_ABS_PATH=$(mktemp "${REPO_ROOT}/retros/.retrobot-output.XXXXXX")' in HOOK
+    assert 'SKILL_RELPATH="retrobot/SKILL.md"' in HOOK
+    assert 'WORKLOG_RELPATH="retros/WORKLOG.md"' in HOOK
+    assert 'CONTEXT_PATH="${REPO_ROOT}/scripts/retrobot_context.py"' in HOOK
+    assert 'SKILL_SNAPSHOT_PATH=$(mktemp "${GIT_DIR}/retrobot-skill.XXXXXX")' in HOOK
+    assert 'WORKLOG_SECTION_PATH=$(mktemp "${GIT_DIR}/retrobot-worklog.XXXXXX")' in HOOK
+    assert 'TEMP_ABS_PATH=$(mktemp "${GIT_DIR}/retrobot-output.XXXXXX")' in HOOK
     assert 'GUARD_PATH="${REPO_ROOT}/scripts/retrobot_guard.py"' in HOOK
     assert "retrobot-last.log" not in HOOK
 
 
 def test_retrobot_latest_commit_input_is_identity_free() -> None:
-    assert 'COMMIT_SHA=$(git log -1 --format=%H' in HOOK
+    assert 'COMMIT_SHA=$(git rev-parse HEAD' in HOOK
     assert 'COMMITTED_AT=$(git log -1 --format=%cI' in HOOK
     assert 'COMMIT_SHORTSTAT=$(LC_ALL=C git diff-tree --shortstat' in HOOK
     assert 'printf "full_sha=%s\\n" "$COMMIT_SHA"' in HOOK
@@ -86,14 +88,19 @@ def test_retrobot_latest_commit_input_is_identity_free() -> None:
 
 def test_retrobot_complete_bound_prompt_inputs_are_identity_free() -> None:
     prompt_builder = HOOK[
-        HOOK.index('{\n    cat "$SKILL_PATH"') : HOOK.index('} | "$PYTHON_BIN"')
+        HOOK.index('{\n    cat "$SKILL_SNAPSHOT_PATH"') : HOOK.index('} | "$PYTHON_BIN"')
     ]
     assert prompt_builder.count("cat ") == 2
-    assert 'cat "$SKILL_PATH"' in prompt_builder
+    assert 'cat "$SKILL_SNAPSHOT_PATH"' in prompt_builder
     assert 'cat "$WORKLOG_SECTION_PATH"' in prompt_builder
     assert 'cat "$WORKLOG_PATH"' not in prompt_builder
-    assert "awk '" in HOOK
-    assert '"$WORKLOG_PATH" >"$WORKLOG_SECTION_PATH"' in HOOK
+    assert 'git show "${COMMIT_SHA}:${SKILL_RELPATH}"' in HOOK
+    assert 'git show "${COMMIT_SHA}:${WORKLOG_RELPATH}"' in HOOK
+    assert '"$PYTHON_BIN" "$CONTEXT_PATH"' in HOOK
+    assert 'cat "$WORKLOG_RELPATH"' not in HOOK
+    assert HOOK.index('COMMIT_SHA=$(git rev-parse HEAD') < HOOK.index(
+        'git show "${COMMIT_SHA}:${WORKLOG_RELPATH}"'
+    )
 
     identity_free_commit_metadata = (
         f"full_sha={'0' * 40}\n"
@@ -131,18 +138,30 @@ def test_retrobot_validates_before_publish_stage_and_commit() -> None:
     guard = HOOK.index('"$PYTHON_BIN" "$GUARD_PATH"')
     publish = HOOK.index('mv -- "$TEMP_ABS_PATH" "$RETRO_ABS_PATH"')
     stage = HOOK.index('git add -- "$RETRO_PATH" "$TIMELINE_PATH"')
-    commit = HOOK.index('git commit -m "docs(retro): 자동 회고 생성 by Retrobot"')
+    commit = HOOK.index('git commit-tree "$RETRO_TREE" -p "$COMMIT_SHA"')
 
     assert guard < publish < stage < commit
     assert 'rm -f -- "$TEMP_ABS_PATH" "$RETRO_ABS_PATH"' in HOOK
 
 
+def test_retrobot_serializes_hooks_and_rechecks_publish_preimages() -> None:
+    assert 'GIT_DIR=$(git rev-parse --absolute-git-dir' in HOOK
+    assert 'LOCK_PATH="${GIT_DIR}/retrobot.lock"' in HOOK
+    assert '"$FLOCK_BIN" -n 9' in HOOK
+    assert HOOK.count("timeline_matches_preimage") >= 3
+    assert 'RETRO_PREEXISTED=0' in HOOK
+    assert 'published_paths_are_owned' in HOOK
+    assert 'git update-ref -m "commit: docs(retro): 자동 회고 생성 by Retrobot"' in HOOK
+
+
 def test_timeline_uses_only_validated_non_model_cells() -> None:
     timeline_append = HOOK[
-        HOOK.index('printf "| %s | [%s]') : HOOK.index('mv -- "$TEMP_ABS_PATH"')
+        HOOK.index('printf "| %s | [%s]') : HOOK.index(
+            'PUBLISHED_RETRO_HASH=$(git hash-object "$TEMP_ABS_PATH")'
+        )
     ]
     assert '"$COMMIT_SHA"' in timeline_append
-    assert "SUBJECT" not in HOOK
+    assert "COMMIT_SUBJECT" not in HOOK
     assert "TEMP_ABS_PATH" not in timeline_append
 
 
@@ -151,6 +170,7 @@ def test_docker_test_image_copies_only_sanitized_retrobot_prompt_inputs() -> Non
     assert "COPY retrobot/SKILL.md ./retrobot/" in DOCKERFILE
     assert "COPY retros/WORKLOG.md ./retros/" in DOCKERFILE
     assert "scripts/retrobot_guard.py" in DOCKERFILE
+    assert "scripts/retrobot_context.py" in DOCKERFILE
     assert "COPY retrobot " not in DOCKERFILE
     assert "COPY retrobot/ " not in DOCKERFILE
     assert "COPY retros " not in DOCKERFILE
@@ -176,5 +196,6 @@ def test_retrobot_preserves_recursion_guard() -> None:
 def test_retrobot_commits_only_its_generated_paths() -> None:
     explicit_paths = '"$RETRO_PATH" "$TIMELINE_PATH"'
     assert f"git add -- {explicit_paths}" in HOOK
-    assert f'--no-verify -- {explicit_paths}' in HOOK
+    assert 'git commit-tree "$RETRO_TREE" -p "$COMMIT_SHA"' in HOOK
+    assert 'ACTUAL_STAGED_PATHS=$(git diff --cached --name-only "$COMMIT_SHA")' in HOOK
     assert "git add retros/" not in HOOK
