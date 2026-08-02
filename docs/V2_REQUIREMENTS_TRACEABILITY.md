@@ -8,7 +8,7 @@
 | 역사적 구현 기준선 | 제품 `67a592be6e10dc5434025073c7a7af1a0e26c027`, Retrobot `5ae7ccacf8b383ecf51360423697cc931b3853a3` |
 | 역사적 Git 관측 | 2026-08-02 local HEAD = tracking ref = live remote `5ae7cca` |
 | 역사적 runtime 영수증 | 2026-07-31 V2 `5ae7cca` exact archive에서 `docker compose run --build --rm test` → `48 passed in 7.39s`; 직접 관측했지만 receipt registry에는 미등록 |
-| 현재 worktree 관측 | 2026-08-02 Docker `127 passed in 10.07s`; host `109 passed, 18 expected skips in 35.01s`; readiness-only HTTP 200; final-SHA receipt는 아님 |
+| 현재 worktree 관측 | 2026-08-02 Docker `127 passed in 8.79s`; host `109 passed, 18 expected skips in 25.65s`; readiness-only HTTP 200; final-SHA receipt는 아님 |
 | 미충족 | 최종 변경 SHA의 공식 Docker suite·real-DB readiness, clean checkout, actual Codex/SSE, 최종 `SUB-01` push parity |
 
 V2의 committed baseline과 exact-archive Docker 영수증은 존재합니다. 최신

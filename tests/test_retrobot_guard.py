@@ -23,7 +23,7 @@ COMMIT_SHA = "a" * 40
 def _safe_retro(*, commit_sha: str = COMMIT_SHA, evidence: str = "검증된 로컬 테스트") -> str:
     return f"""# Retrobot 회고 — 2026-08-02 12:34 KST
 
-> 최신 커밋과 지원자 작업 로그를 바탕으로 자동 생성했습니다.
+> 최신 커밋 메타데이터와 제한된 작업 로그를 바탕으로 자동 생성했습니다.
 
 ## 요약
 

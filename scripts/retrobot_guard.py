@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-MAX_PROMPT_BYTES = 512 * 1024
+MAX_PROMPT_BYTES = 16 * 1024
 MAX_RETRO_BYTES = 64 * 1024
 
 _OPTIONAL_ENVIRONMENT = (
@@ -329,7 +329,9 @@ def _validate_heading_contract(lines: list[str]) -> None:
         raise RetrobotGuardError("Generated retrospective title time is invalid") from None
 
     nonempty = [line for line in lines if line]
-    expected_attribution = "> 최신 커밋과 지원자 작업 로그를 바탕으로 자동 생성했습니다."
+    expected_attribution = (
+        "> 최신 커밋 메타데이터와 제한된 작업 로그를 바탕으로 자동 생성했습니다."
+    )
     if len(nonempty) < 2 or nonempty[1] != expected_attribution:
         raise RetrobotGuardError("Generated retrospective attribution is invalid")
 

@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-from scripts.retrobot_guard import validate_retrobot_prompt
+from scripts.retrobot_guard import MAX_PROMPT_BYTES, validate_retrobot_prompt
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DOCKERFILE = (REPOSITORY_ROOT / "Dockerfile.test").read_text(encoding="utf-8")
@@ -30,13 +30,6 @@ _IDENTITY_ROLE_FIELDS = (
     "저장소 소유자",
     "평가자 계정",
 )
-_ROLE_PLACEHOLDERS = (
-    "<private-repository>",
-    "<evaluator-collaborator>",
-    "<github-noreply-address>",
-)
-
-
 def _assert_identity_free(bound_prompt: str) -> None:
     if _EMAIL_ADDRESS.search(bound_prompt):
         raise AssertionError("Retrobot prompt input contains an email address")
@@ -70,6 +63,7 @@ def test_retrobot_cleans_its_disposable_directory_safely() -> None:
 def test_retrobot_keeps_prompt_and_output_out_of_the_disposable_directory() -> None:
     assert 'SKILL_PATH="${REPO_ROOT}/retrobot/SKILL.md"' in HOOK
     assert 'WORKLOG_PATH="${REPO_ROOT}/retros/WORKLOG.md"' in HOOK
+    assert 'WORKLOG_SECTION_PATH=$(mktemp "${REPO_ROOT}/retros/.retrobot-worklog.XXXXXX")' in HOOK
     assert 'TEMP_ABS_PATH=$(mktemp "${REPO_ROOT}/retros/.retrobot-output.XXXXXX")' in HOOK
     assert 'GUARD_PATH="${REPO_ROOT}/scripts/retrobot_guard.py"' in HOOK
     assert "retrobot-last.log" not in HOOK
@@ -96,16 +90,22 @@ def test_retrobot_complete_bound_prompt_inputs_are_identity_free() -> None:
     ]
     assert prompt_builder.count("cat ") == 2
     assert 'cat "$SKILL_PATH"' in prompt_builder
-    assert 'cat "$WORKLOG_PATH"' in prompt_builder
+    assert 'cat "$WORKLOG_SECTION_PATH"' in prompt_builder
+    assert 'cat "$WORKLOG_PATH"' not in prompt_builder
+    assert "awk '" in HOOK
+    assert '"$WORKLOG_PATH" >"$WORKLOG_SECTION_PATH"' in HOOK
 
     identity_free_commit_metadata = (
         f"full_sha={'0' * 40}\n"
         "committed_at=2026-08-02T00:00:00+09:00\n"
         "aggregate_shortstat=2 files changed, 10 insertions(+), 3 deletions(-)"
     )
-    bound_prompt = "\n\n".join((SKILL, identity_free_commit_metadata, WORKLOG))
+    latest_worklog = "## " + WORKLOG.rsplit("\n## ", maxsplit=1)[1]
+    bound_prompt = "\n\n".join((SKILL, identity_free_commit_metadata, latest_worklog))
 
-    assert all(placeholder in WORKLOG for placeholder in _ROLE_PLACEHOLDERS)
+    assert len(bound_prompt.encode()) <= MAX_PROMPT_BYTES
+    assert "## 2026-07-28" not in latest_worklog
+    assert "127 passed" in latest_worklog
     _assert_identity_free(bound_prompt)
     validate_retrobot_prompt(bound_prompt.encode())
 
@@ -160,6 +160,7 @@ def test_docker_test_image_copies_only_sanitized_retrobot_prompt_inputs() -> Non
         "!retrobot/",
         "retrobot/*",
         "!retrobot/SKILL.md",
+        "retros/",
         "!retros/",
         "retros/*",
         "!retros/WORKLOG.md",

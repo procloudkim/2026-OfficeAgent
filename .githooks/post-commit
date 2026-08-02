@@ -42,6 +42,7 @@ TIMELINE_PATH="retros/TIMELINE.md"
 RETRO_ABS_PATH="${REPO_ROOT}/${RETRO_PATH}"
 TIMELINE_ABS_PATH="${REPO_ROOT}/${TIMELINE_PATH}"
 TEMP_ABS_PATH=$(mktemp "${REPO_ROOT}/retros/.retrobot-output.XXXXXX") || exit 0
+WORKLOG_SECTION_PATH=
 TIMELINE_NEXT=
 TIMELINE_BACKUP=
 RETROBOT_RUN_DIR=
@@ -61,6 +62,9 @@ cleanup_retrobot() {
         fi
     fi
     rm -f -- "$TEMP_ABS_PATH"
+    if [ -n "$WORKLOG_SECTION_PATH" ]; then
+        rm -f -- "$WORKLOG_SECTION_PATH"
+    fi
     if [ -n "$TIMELINE_NEXT" ]; then
         rm -f -- "$TIMELINE_NEXT"
     fi
@@ -80,6 +84,33 @@ trap 'exit 1' HUP INT TERM
 
 if [ -e "$RETRO_ABS_PATH" ]; then
     echo "ℹ Retrobot: 같은 시각의 회고가 이미 있어 생성을 건너뜁니다."
+    exit 0
+fi
+if [ ! -f "$WORKLOG_PATH" ]; then
+    echo "ℹ Retrobot: 제한 작업 로그가 없어 회고 생성을 건너뜁니다."
+    exit 0
+fi
+
+WORKLOG_SECTION_PATH=$(mktemp "${REPO_ROOT}/retros/.retrobot-worklog.XXXXXX") || exit 0
+if ! awk '
+/^## [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] — / {
+    section = ""
+    found = 1
+}
+found { section = section $0 ORS }
+END {
+    if (!found) {
+        exit 1
+    }
+    printf "%s", section
+}
+' "$WORKLOG_PATH" >"$WORKLOG_SECTION_PATH"; then
+    echo "ℹ Retrobot: 최신 작업 로그 구간을 추출하지 못해 회고 생성을 건너뜁니다."
+    exit 0
+fi
+WORKLOG_SECTION_BYTES=$(LC_ALL=C wc -c <"$WORKLOG_SECTION_PATH")
+if [ ! -s "$WORKLOG_SECTION_PATH" ] || [ "$WORKLOG_SECTION_BYTES" -gt 8192 ]; then
+    echo "ℹ Retrobot: 최신 작업 로그 구간이 비었거나 8 KiB를 초과해 건너뜁니다."
     exit 0
 fi
 if ! git diff --quiet -- "$TIMELINE_PATH" || ! git diff --cached --quiet -- "$TIMELINE_PATH"; then
@@ -112,10 +143,8 @@ echo "🤖 Retrobot: 회고 생성 중..."
     printf '%s\n' "- 요약의 기준 커밋 값은 위 full_sha 전체만 사용한다."
     printf '%s\n' "- SKILL.md의 heading을 순서대로 한 번씩만 사용한다."
     printf '%s\n' "- URL, link, image, HTML, code fence와 credential을 출력하지 않는다."
-    if [ -f "$WORKLOG_PATH" ]; then
-        printf "\n\n### 지원자 작업 로그\n\n"
-        cat "$WORKLOG_PATH"
-    fi
+    printf "\n\n### 최신 제한 작업 로그\n\n"
+    cat "$WORKLOG_SECTION_PATH"
 } | "$PYTHON_BIN" "$GUARD_PATH" \
     --codex "$CODEX_BIN" \
     --run-directory "$RETROBOT_RUN_DIR" \

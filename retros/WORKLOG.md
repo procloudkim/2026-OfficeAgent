@@ -1,7 +1,7 @@
 # 지원자 작업 로그
 
-이 파일은 Retrobot이 회고를 만들 때 사용하는 사실 기반 입력이다. 작업 중 확인한
-결정·실패·검증만 기록하고, 면접 전에 지원자가 직접 사실관계를 보완한다.
+이 파일은 지원자가 직접 보완하는 사실 기록이다. 작업 중 확인한 결정·실패·검증만
+기록하며, Retrobot은 최신 날짜 H2 구간 하나만 8 KiB 상한 안에서 외부로 전송한다.
 
 ## 2026-07-28 — 시작 전 조사와 부트스트랩
 
@@ -397,27 +397,28 @@
 ### 검증
 
 - WSL2 Docker client/server, Compose와 `hello-world`를 확인했다.
-- current worktree의 Docker suite → `127 passed in 10.07s`.
-- current worktree의 host suite → `109 passed, 18 expected skips in 35.01s`.
+- current worktree의 Docker suite → `127 passed in 8.79s`.
+- current worktree의 host suite → `109 passed, 18 expected skips in 25.65s`.
 - Ruff, `uv lock --check`, Compose config, hook syntax와 diff check를 통과했다.
 - Codex를 호출하지 않는 readiness-only smoke의 실제 Uvicorn `/health/ready`는
   HTTP `200`, `ready`, migration head `0001`, pgvector `0.8.6`을 반환했고 종료 뒤
   `officeagent_test_%` database 잔존 수는 `0`이었다.
 - 최종 감사 runner는 ignored `.env`를 배제하고 local database target만 allowlist하며,
   Codex workspace basename을 고정하고 disposable root containment를 검증한다.
-- Retrobot의 현재 고정 prompt 입력에서 이메일, GitHub URL과 identity-bearing role
-  값이 없음을 검사하는 회귀를 추가하면서 test image에서 입력과 self-contract 파일이
-  빠진 두 번의 Docker collection RED를 관측했다. 광범위한 디렉터리 COPY 대신
-  필요한 파일만 exact allowlist해 suite를 복구했다. 이 회귀는 provider-side
-  privacy나 미래 WORKLOG의 무조건적 안전을 증명하지 않는다.
+- Retrobot의 prompt를 고정 skill, commit SHA·시각·aggregate shortstat와 WORKLOG의
+  최신 날짜 구간 하나로 축소했다. 이전 로그·commit 제목·파일명·작성자·diff 부재와
+  16 KiB prompt·8 KiB 구간 상한을 회귀로 고정하고, test image도 필요한 self-contract
+  파일만 exact allowlist한다. 이 경계는 provider-side privacy나 repository의
+  OS-level read isolation을 증명하지 않는다.
 - fresh-run 귀속용 64-hex instance nonce는 설정된 감사 실행에서만 readiness에
   echo하며, 기본 3필드 응답과 readiness-only receipt는 그대로 유지한다.
 
 ### 남은 경계
 
-- 실제 Codex HTTP/SSE live smoke는 sample fixture context의 외부 전송 명시 승인
-  대기라 `BLOCKED`다. 승인된 current-SHA 실행 전 live `VERIFIED`를 주장하지 않는다.
-- Retrobot guard 집중 계약은 `41 passed`지만 실제 post-commit Codex 호출·자동 commit은
-  아직 실행하지 않았다. 인증에는 실제 `CODEX_HOME` 접근이 필요하며 auth 자체의
-  provider/CLI 경계는 이 로컬 guard가 증명하지 않는다.
+- 실제 Codex HTTP/SSE live smoke의 sample fixture context 외부 전송은 승인됐으며,
+  final current-SHA 실행 전까지 live `VERIFIED`를 주장하지 않는다.
+- 제품 commit `873e155`의 첫 Retrobot 호출은 출력 계약을 통과하지 못해 회고를
+  publish하지 않았다. 최신 로그 단일 구간 경계로 재구성한 뒤 실제 hook·자동 commit을
+  다시 검증한다. 인증에는 실제 `CODEX_HOME` 접근이 필요하며 auth 자체의 provider/CLI
+  경계는 이 로컬 guard가 증명하지 않는다.
 - clean checkout, remote parity와 final recorder/audit은 최종 commit 뒤 실행한다.
