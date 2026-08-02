@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -13,11 +14,13 @@ from scripts.retrobot_guard import (
     build_codex_command,
     build_codex_environment,
     execute_retrobot,
+    render_structured_retrospective,
     validate_retrobot_output,
     validate_retrobot_prompt,
 )
 
 COMMIT_SHA = "a" * 40
+GENERATED_AT_KST = "2026-08-02_123456"
 
 
 def _safe_retro(*, commit_sha: str = COMMIT_SHA, evidence: str = "검증된 로컬 테스트") -> str:
@@ -66,6 +69,35 @@ def _write_fake_codex(path: Path, body: str) -> None:
     path.chmod(0o755)
 
 
+def _safe_structured(*, evidence: str = "검증된 로컬 테스트") -> bytes:
+    return json.dumps(
+        {
+            "main_goal": "Retrobot 경계를 작게 유지한다.",
+            "validation_status": "입력에서 확인된 사실만 기록했다.",
+            "performed": ["고정 입력을 바탕으로 회고를 생성했다."],
+            "keep": ["증거와 주장을 분리했다."],
+            "problem": ["실제 외부 실행은 별도 검증이 필요하다."],
+            "try_next": ["최종 커밋에서 제한된 실행을 확인한다."],
+            "evidence": [evidence],
+        },
+        ensure_ascii=False,
+    ).encode()
+
+
+def _structured_codex_script(payload: bytes, *, stdout: str = "") -> str:
+    return (
+        "#!/usr/bin/env python3\n"
+        "import os\n"
+        "import pathlib\n"
+        "import sys\n"
+        "sys.stdin.buffer.read()\n"
+        "assert 'RETROBOT_SECRET_SENTINEL' not in os.environ\n"
+        f"sys.stdout.write({stdout!r})\n"
+        "target = pathlib.Path(sys.argv[sys.argv.index('--output-last-message') + 1])\n"
+        f"target.write_bytes({payload!r})\n"
+    )
+
+
 def test_codex_environment_is_an_explicit_allowlist(tmp_path: Path) -> None:
     source = {
         "PATH": "/usr/bin:/bin",
@@ -103,7 +135,11 @@ def test_codex_environment_is_an_explicit_allowlist(tmp_path: Path) -> None:
 
 
 def test_codex_argv_disables_local_configuration_rules_and_shell() -> None:
-    assert build_codex_command(Path("/opt/codex")) == [
+    assert build_codex_command(
+        Path("/opt/codex"),
+        schema_path=Path("/private/schema.json"),
+        final_message_path=Path("/private/final.json"),
+    ) == [
         "/opt/codex",
         "exec",
         "--ephemeral",
@@ -121,6 +157,10 @@ def test_codex_argv_disables_local_configuration_rules_and_shell() -> None:
         'approval_policy="never"',
         "-c",
         "shell_environment_policy.inherit=none",
+        "--output-schema",
+        "/private/schema.json",
+        "--output-last-message",
+        "/private/final.json",
         "-",
     ]
 
@@ -141,6 +181,54 @@ def test_proxy_credentials_are_not_forwarded(tmp_path: Path) -> None:
 
 def test_valid_retro_output_is_accepted() -> None:
     validate_retrobot_output(_safe_retro().encode(), expected_commit_sha=COMMIT_SHA)
+
+
+def test_structured_output_is_rendered_to_canonical_markdown() -> None:
+    assert render_structured_retrospective(
+        _safe_structured(),
+        expected_commit_sha=COMMIT_SHA,
+        generated_at_kst=GENERATED_AT_KST,
+    ).decode() == _safe_retro()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"main_goal":"first","main_goal":"second"}',
+        b'{"main_goal":NaN}',
+        b'{"unexpected":"value"}',
+        b'[]',
+        b'not-json',
+        b'{"main_goal":' + b"1" * 5_000 + b"}",
+    ],
+)
+def test_malformed_structured_output_is_rejected(payload: bytes) -> None:
+    with pytest.raises(RetrobotGuardError):
+        render_structured_retrospective(
+            payload,
+            expected_commit_sha=COMMIT_SHA,
+            generated_at_kst=GENERATED_AT_KST,
+        )
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "https://attacker.invalid/collect",
+        "OPENAI_API_KEY=sk-private-value",
+        "first line\nsecond line",
+        "first line\u2028second line",
+        "first line\u2029second line",
+        " table | breakout ",
+    ],
+)
+def test_unsafe_structured_values_are_rejected(evidence: str) -> None:
+    with pytest.raises(RetrobotGuardError):
+        render_structured_retrospective(
+            _safe_structured(evidence=evidence),
+            expected_commit_sha=COMMIT_SHA,
+            generated_at_kst=GENERATED_AT_KST,
+        )
 
 
 def test_public_documentation_url_is_allowed_in_prompt() -> None:
@@ -203,15 +291,13 @@ def test_execution_does_not_forward_sentinel_environment(tmp_path: Path) -> None
     run_directory = tmp_path / "empty-run"
     run_directory.mkdir()
     output_path = tmp_path / "retro.tmp"
-    safe_output = repr(_safe_retro(evidence="child environment was allowlisted"))
+    output_path.touch()
     _write_fake_codex(
         codex,
-        "#!/usr/bin/env python3\n"
-        "import os\n"
-        "import sys\n"
-        "sys.stdin.buffer.read()\n"
-        "assert 'RETROBOT_SECRET_SENTINEL' not in os.environ\n"
-        f"sys.stdout.write({safe_output})\n",
+        _structured_codex_script(
+            _safe_structured(evidence="child environment was allowlisted"),
+            stdout="ignored stdout with https://attacker.invalid/collect",
+        ),
     )
 
     execute_retrobot(
@@ -220,6 +306,7 @@ def test_execution_does_not_forward_sentinel_environment(tmp_path: Path) -> None
         run_directory=run_directory,
         output_path=output_path,
         expected_commit_sha=COMMIT_SHA,
+        generated_at_kst=GENERATED_AT_KST,
         source_environment={
             "PATH": os.environ["PATH"],
             "HOME": str(tmp_path / "real-home"),
@@ -232,6 +319,7 @@ def test_execution_does_not_forward_sentinel_environment(tmp_path: Path) -> None
     assert output_path.read_text(encoding="utf-8") == _safe_retro(
         evidence="child environment was allowlisted"
     )
+    assert not any(run_directory.iterdir())
 
 
 @pytest.mark.parametrize(
@@ -254,6 +342,7 @@ def test_private_prompt_is_rejected_before_subprocess(
     run_directory = tmp_path / "empty-run"
     run_directory.mkdir()
     output_path = tmp_path / "retro.tmp"
+    output_path.touch()
     _write_fake_codex(codex, "#!/bin/sh\nexit 0\n")
 
     def fail_if_started(*args: object, **kwargs: object) -> None:
@@ -267,6 +356,7 @@ def test_private_prompt_is_rejected_before_subprocess(
             run_directory=run_directory,
             output_path=output_path,
             expected_commit_sha=COMMIT_SHA,
+            generated_at_kst=GENERATED_AT_KST,
             source_environment={
                 "PATH": os.environ["PATH"],
                 "HOME": str(tmp_path),
@@ -283,6 +373,7 @@ def test_timeout_removes_partial_output_without_leaking_stderr(tmp_path: Path) -
     run_directory = tmp_path / "empty-run"
     run_directory.mkdir()
     output_path = tmp_path / "retro.tmp"
+    output_path.touch()
     _write_fake_codex(
         codex,
         "#!/usr/bin/env python3\n"
@@ -302,12 +393,14 @@ def test_timeout_removes_partial_output_without_leaking_stderr(tmp_path: Path) -
             run_directory=run_directory,
             output_path=output_path,
             expected_commit_sha=COMMIT_SHA,
+            generated_at_kst=GENERATED_AT_KST,
             source_environment={"PATH": os.environ["PATH"], "HOME": str(tmp_path)},
             timeout_seconds=0.05,
         )
 
     assert "do-not-leak-this-secret" not in str(raised.value)
     assert not output_path.exists()
+    assert not any(run_directory.iterdir())
 
 
 def test_invalid_model_output_is_removed(tmp_path: Path) -> None:
@@ -315,10 +408,12 @@ def test_invalid_model_output_is_removed(tmp_path: Path) -> None:
     run_directory = tmp_path / "empty-run"
     run_directory.mkdir()
     output_path = tmp_path / "retro.tmp"
+    output_path.touch()
     _write_fake_codex(
         codex,
-        "#!/usr/bin/env python3\n"
-        "print('https://attacker.invalid/collect')\n",
+        _structured_codex_script(
+            _safe_structured(evidence="https://attacker.invalid/collect")
+        ),
     )
 
     with pytest.raises(RetrobotGuardError):
@@ -328,8 +423,49 @@ def test_invalid_model_output_is_removed(tmp_path: Path) -> None:
             run_directory=run_directory,
             output_path=output_path,
             expected_commit_sha=COMMIT_SHA,
+            generated_at_kst=GENERATED_AT_KST,
             source_environment={"PATH": os.environ["PATH"], "HOME": str(tmp_path)},
             timeout_seconds=5,
         )
 
     assert not output_path.exists()
+    assert not any(run_directory.iterdir())
+
+
+def test_private_artifact_cleanup_failure_rejects_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    codex = tmp_path / "fake-codex"
+    run_directory = tmp_path / "empty-run"
+    run_directory.mkdir()
+    output_path = tmp_path / "retro.tmp"
+    output_path.touch()
+    _write_fake_codex(codex, _structured_codex_script(_safe_structured()))
+    original_unlink = Path.unlink
+
+    def reject_private_json_unlink(
+        path: Path,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        if path.name == "last-message.json":
+            raise PermissionError("simulated private cleanup failure")
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", reject_private_json_unlink)
+
+    with pytest.raises(RetrobotGuardError, match="private response cleanup failed"):
+        execute_retrobot(
+            prompt=b"bounded prompt",
+            codex_path=codex,
+            run_directory=run_directory,
+            output_path=output_path,
+            expected_commit_sha=COMMIT_SHA,
+            generated_at_kst=GENERATED_AT_KST,
+            source_environment={"PATH": os.environ["PATH"], "HOME": str(tmp_path)},
+            timeout_seconds=5,
+        )
+
+    assert not output_path.exists()
+    assert (run_directory / "last-message.json").is_file()

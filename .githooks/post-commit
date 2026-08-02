@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Retrobot post-commit hook
-# Codex에는 고정된 최소 입력만 보내고 검증된 Markdown만 회고 commit으로 남깁니다.
+# Codex에는 커밋에 고정된 최소 입력만 보내고 검증된 JSON을 로컬 회고로 남깁니다.
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$REPO_ROOT" || exit 0
@@ -13,17 +13,19 @@ esac
 if [ "${#COMMIT_SHA}" -ne 40 ] && [ "${#COMMIT_SHA}" -ne 64 ]; then
     exit 0
 fi
+HEAD_REF=$(git symbolic-ref -q HEAD 2>/dev/null || true)
+if [ -z "$HEAD_REF" ]; then
+    REF_TARGET=HEAD
+    DETACHED_HEAD=1
+else
+    REF_TARGET=$HEAD_REF
+    DETACHED_HEAD=0
+fi
 LAST_MSG=$(git log -1 --format=%s "$COMMIT_SHA" 2>/dev/null)
 case "$LAST_MSG" in
     "docs(retro): 자동 회고 생성 by Retrobot") exit 0 ;;
 esac
-
-SKILL_RELPATH="retrobot/SKILL.md"
-WORKLOG_RELPATH="retros/WORKLOG.md"
-GUARD_PATH="${REPO_ROOT}/scripts/retrobot_guard.py"
-CONTEXT_PATH="${REPO_ROOT}/scripts/retrobot_context.py"
-
-if [ ! -f "$GUARD_PATH" ] || [ ! -f "$CONTEXT_PATH" ] || [ "${RETROBOT_SKIP:-0}" = "1" ]; then
+if [ "${RETROBOT_SKIP:-0}" = "1" ]; then
     exit 0
 fi
 
@@ -32,127 +34,289 @@ if [ -z "$CODEX_BIN" ]; then
     echo "ℹ Retrobot: codex CLI를 찾지 못해 회고 생성을 건너뜁니다."
     exit 0
 fi
-
 PYTHON_BIN=$(command -v python3 2>/dev/null)
 if [ -z "$PYTHON_BIN" ]; then
     PYTHON_BIN=$(command -v python 2>/dev/null)
-fi
-
-FLOCK_BIN=$(command -v flock 2>/dev/null)
-if [ -z "$FLOCK_BIN" ]; then
-    echo "ℹ Retrobot: flock을 찾지 못해 동시 실행을 안전하게 막을 수 없습니다."
-    exit 0
-fi
-GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit 0
-LOCK_PATH="${GIT_DIR}/retrobot.lock"
-umask 077
-exec 9>"$LOCK_PATH" || exit 0
-if ! "$FLOCK_BIN" -n 9; then
-    echo "ℹ Retrobot: 다른 회고 실행이 진행 중이라 생성을 건너뜁니다."
-    exit 0
 fi
 if [ -z "$PYTHON_BIN" ]; then
     echo "ℹ Retrobot: Python을 찾지 못해 회고 생성을 건너뜁니다."
     exit 0
 fi
+FLOCK_BIN=$(command -v flock 2>/dev/null)
+if [ -z "$FLOCK_BIN" ]; then
+    echo "ℹ Retrobot: flock을 찾지 못해 동시 실행을 안전하게 막을 수 없습니다."
+    exit 0
+fi
 
-mkdir -p "${REPO_ROOT}/retros" || exit 0
+GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit 0
+exec 9<"$GIT_DIR" || exit 0
+if ! "$FLOCK_BIN" 9; then
+    echo "ℹ Retrobot: 회고 실행 직렬화에 실패해 생성을 건너뜁니다."
+    exit 0
+fi
+umask 077
 
-STAMP=$(TZ=KST-9 date "+%Y-%m-%d_%H%M%S")
-RETRO_PATH="retros/${STAMP}_retro.md"
+HOOK_RELPATH=".githooks/post-commit"
+SKILL_RELPATH="retrobot/SKILL.md"
+WORKLOG_RELPATH="retros/WORKLOG.md"
+GUARD_RELPATH="scripts/retrobot_guard.py"
+CONTEXT_RELPATH="scripts/retrobot_context.py"
+PUBLISH_RELPATH="scripts/retrobot_publish.py"
 TIMELINE_PATH="retros/TIMELINE.md"
+STAMP=$(TZ=KST-9 date "+%Y-%m-%d_%H%M%S")
+RETRO_PATH="retros/${STAMP}_${COMMIT_SHA}_retro.md"
 RETRO_ABS_PATH="${REPO_ROOT}/${RETRO_PATH}"
 TIMELINE_ABS_PATH="${REPO_ROOT}/${TIMELINE_PATH}"
-TEMP_ABS_PATH=$(mktemp "${GIT_DIR}/retrobot-output.XXXXXX") || exit 0
-SKILL_SNAPSHOT_PATH=
-WORKLOG_SECTION_PATH=
+SHARED_INDEX_PATH="${GIT_DIR}/index"
+SHARED_INDEX_LOCK="${GIT_DIR}/index.lock"
+SHARED_HEAD_PATH="${GIT_DIR}/HEAD"
+SHARED_HEAD_LOCK="${GIT_DIR}/HEAD.lock"
+
+TEMP_ABS_PATH=
+TEMP_OWNER_PATH=
+TIMELINE_BASE=
 TIMELINE_NEXT=
-TIMELINE_BACKUP=
 RETROBOT_RUN_DIR=
-TIMELINE_HAD_ORIGINAL=0
-RETRO_PREEXISTED=0
-PUBLISHED=0
-COMMITTED=0
+RETROBOT_INDEX_DIR=
+RETROBOT_INDEX=
+RETROBOT_TREE_INDEX=
+RECOVERY_DIR=
+RETRO_OWNER_PATH=
+TIMELINE_OWNER_PATH=
+INDEX_LOCK_OWNER_PATH=
+INDEX_LOCK_RECOVERY=
+HEAD_LOCK_OWNER_PATH=
+HEAD_LOCK_RECOVERY=
+HEAD_LOCK_SEQUENCE=0
+HEAD_NEXT=
+PUBLICATION_BASE=
+REF_UPDATED=0
+PRESERVE_INDEX=0
 PUBLISHED_RETRO_HASH=
 PUBLISHED_TIMELINE_HASH=
+RETRO_COMMIT=
+PUBLISH_CODE=
+
+path_exists() {
+    [ -e "$1" ] || [ -L "$1" ]
+}
+
+head_ref_matches() {
+    expected_oid=$1
+    if [ "$DETACHED_HEAD" = "1" ]; then
+        ! git symbolic-ref -q HEAD >/dev/null 2>&1 \
+            && [ "$(git rev-parse HEAD 2>/dev/null)" = "$expected_oid" ]
+    else
+        [ "$(git symbolic-ref -q HEAD 2>/dev/null)" = "$HEAD_REF" ] \
+            && [ "$(git rev-parse "$HEAD_REF" 2>/dev/null)" = "$expected_oid" ] \
+            && [ "$(git rev-parse HEAD 2>/dev/null)" = "$expected_oid" ]
+    fi
+}
+
+capture_publication_base() {
+    candidate=$(git rev-parse HEAD 2>/dev/null) || return 1
+    head_ref_matches "$candidate" || return 1
+    git merge-base --is-ancestor "$COMMIT_SHA" "$candidate" 2>/dev/null || return 1
+    PUBLICATION_BASE=$candidate
+}
+
+protected_index_preimage_matches() {
+    index_lock_is_owned || return 1
+    GIT_INDEX_FILE="$INDEX_LOCK_OWNER_PATH" git diff --cached --quiet \
+        "$PUBLICATION_BASE" -- "$TIMELINE_PATH" "$RETRO_PATH" || return 1
+    timeline_tag=$(GIT_INDEX_FILE="$INDEX_LOCK_OWNER_PATH" \
+        git ls-files -v -- "$TIMELINE_PATH") || return 1
+    retro_tag=$(GIT_INDEX_FILE="$INDEX_LOCK_OWNER_PATH" \
+        git ls-files -v -- "$RETRO_PATH") || return 1
+    [ -z "$retro_tag" ] || return 1
+    if git cat-file -e "${PUBLICATION_BASE}:${TIMELINE_PATH}" 2>/dev/null; then
+        [ "$timeline_tag" = "H $TIMELINE_PATH" ]
+    else
+        [ -z "$timeline_tag" ]
+    fi
+}
 
 committed_file_matches_worktree() {
     relative_path=$1
     absolute_path="${REPO_ROOT}/${relative_path}"
     [ -f "$absolute_path" ] && [ ! -L "$absolute_path" ] || return 1
-    committed_blob=$(git rev-parse "${COMMIT_SHA}:${relative_path}" 2>/dev/null) || return 1
-    worktree_blob=$(git hash-object --path="$relative_path" --filters "$absolute_path" 2>/dev/null) \
+    committed_blob=$(git rev-parse "${COMMIT_SHA}:${relative_path}" 2>/dev/null) \
         || return 1
+    worktree_blob=$(git hash-object --path="$relative_path" --filters \
+        "$absolute_path" 2>/dev/null) || return 1
     [ "$worktree_blob" = "$committed_blob" ]
 }
 
-execution_inputs_match_commit() {
-    committed_file_matches_worktree ".githooks/post-commit" \
-        && committed_file_matches_worktree "scripts/retrobot_guard.py" \
-        && committed_file_matches_worktree "scripts/retrobot_context.py"
-}
-
-timeline_matches_preimage() {
-    [ "$(git rev-parse HEAD 2>/dev/null)" = "$COMMIT_SHA" ] || return 1
-    [ "$RETRO_PREEXISTED" = "0" ] || return 1
-    [ ! -e "$RETRO_ABS_PATH" ] || return 1
-    git ls-files --error-unmatch "$RETRO_PATH" >/dev/null 2>&1 && return 1
-    git diff --quiet "$COMMIT_SHA" -- "$TIMELINE_PATH" || return 1
-    git diff --cached --quiet "$COMMIT_SHA" -- "$TIMELINE_PATH" || return 1
-    git diff --cached --quiet "$COMMIT_SHA" -- . || return 1
-    if git cat-file -e "${COMMIT_SHA}:${TIMELINE_PATH}" 2>/dev/null; then
+publication_preimage_matches() {
+    [ -n "$PUBLICATION_BASE" ] && head_ref_matches "$PUBLICATION_BASE" || return 1
+    protected_index_preimage_matches || return 1
+    ! path_exists "$RETRO_ABS_PATH" || return 1
+    git diff --quiet "$PUBLICATION_BASE" -- "$TIMELINE_PATH" || return 1
+    if git cat-file -e "${PUBLICATION_BASE}:${TIMELINE_PATH}" 2>/dev/null; then
         [ -f "$TIMELINE_ABS_PATH" ] && [ ! -L "$TIMELINE_ABS_PATH" ]
     else
-        [ ! -e "$TIMELINE_ABS_PATH" ] \
+        ! path_exists "$TIMELINE_ABS_PATH" \
             && ! git ls-files --error-unmatch "$TIMELINE_PATH" >/dev/null 2>&1
     fi
 }
 
 published_paths_are_owned() {
-    [ "$(git rev-parse HEAD 2>/dev/null)" = "$COMMIT_SHA" ] || return 1
+    head_ref_matches "$PUBLICATION_BASE" || return 1
     [ -f "$RETRO_ABS_PATH" ] && [ ! -L "$RETRO_ABS_PATH" ] || return 1
     [ -f "$TIMELINE_ABS_PATH" ] && [ ! -L "$TIMELINE_ABS_PATH" ] || return 1
-    [ "$(git hash-object "$RETRO_ABS_PATH" 2>/dev/null)" = "$PUBLISHED_RETRO_HASH" ] \
+    [ -f "$RETRO_OWNER_PATH" ] && [ "$RETRO_OWNER_PATH" -ef "$RETRO_ABS_PATH" ] \
         || return 1
-    [ "$(git hash-object "$TIMELINE_ABS_PATH" 2>/dev/null)" = "$PUBLISHED_TIMELINE_HASH" ] \
-        || return 1
-    [ "$(git rev-parse ":${RETRO_PATH}" 2>/dev/null)" = "$PUBLISHED_RETRO_HASH" ] \
-        || return 1
-    [ "$(git rev-parse ":${TIMELINE_PATH}" 2>/dev/null)" = "$PUBLISHED_TIMELINE_HASH" ]
+    [ -f "$TIMELINE_OWNER_PATH" ] \
+        && [ "$TIMELINE_OWNER_PATH" -ef "$TIMELINE_ABS_PATH" ] || return 1
+    [ "$(git hash-object "$RETRO_ABS_PATH" 2>/dev/null)" = \
+        "$PUBLISHED_RETRO_HASH" ] || return 1
+    [ "$(git hash-object "$TIMELINE_ABS_PATH" 2>/dev/null)" = \
+        "$PUBLISHED_TIMELINE_HASH" ]
+}
+
+tree_contains_only_publication() {
+    candidate_tree=$1
+    expected_paths=$(printf "%s\n%s\n" "$TIMELINE_PATH" "$RETRO_PATH" | LC_ALL=C sort)
+    tree_paths=$(git diff-tree --no-commit-id --name-only -r \
+        "$PUBLICATION_BASE" "$candidate_tree") || return 1
+    [ "$tree_paths" = "$expected_paths" ] || return 1
+    [ "$(git rev-parse "${candidate_tree}:${RETRO_PATH}" 2>/dev/null)" = \
+        "$PUBLISHED_RETRO_HASH" ] || return 1
+    [ "$(git rev-parse "${candidate_tree}:${TIMELINE_PATH}" 2>/dev/null)" = \
+        "$PUBLISHED_TIMELINE_HASH" ] || return 1
+    [ "$(git ls-tree "$candidate_tree" -- "$RETRO_PATH" | cut -d ' ' -f 1)" = \
+        "100644" ] || return 1
+    [ "$(git ls-tree "$candidate_tree" -- "$TIMELINE_PATH" | cut -d ' ' -f 1)" = \
+        "100644" ]
+}
+
+refresh_ref_state() {
+    [ -n "$RETRO_COMMIT" ] || return 0
+    actual_target=$(git rev-parse "$REF_TARGET" 2>/dev/null) || return 0
+    if [ "$actual_target" = "$RETRO_COMMIT" ] \
+        || git merge-base --is-ancestor "$RETRO_COMMIT" "$actual_target" 2>/dev/null; then
+        REF_UPDATED=1
+    fi
+}
+
+index_lock_is_owned() {
+    [ -n "$INDEX_LOCK_OWNER_PATH" ] \
+        && [ -f "$INDEX_LOCK_OWNER_PATH" ] \
+        && [ -f "$SHARED_INDEX_LOCK" ] \
+        && [ "$INDEX_LOCK_OWNER_PATH" -ef "$SHARED_INDEX_LOCK" ]
+}
+
+head_lock_is_owned() {
+    [ -n "$HEAD_LOCK_OWNER_PATH" ] \
+        && [ -f "$HEAD_LOCK_OWNER_PATH" ] \
+        && [ -f "$SHARED_HEAD_LOCK" ] \
+        && [ "$HEAD_LOCK_OWNER_PATH" -ef "$SHARED_HEAD_LOCK" ]
+}
+
+acquire_index_lock() {
+    attempt=0
+    while [ "$attempt" -lt 200 ]
+    do
+        if "$PYTHON_BIN" -I -c "$PUBLISH_CODE" install \
+            --source "$SHARED_INDEX_PATH" \
+            --destination "$SHARED_INDEX_LOCK" \
+            --owner-link "$INDEX_LOCK_OWNER_PATH" 2>/dev/null; then
+            return 0
+        fi
+        path_exists "$INDEX_LOCK_OWNER_PATH" && return 1
+        attempt=$((attempt + 1))
+        sleep 0.05
+    done
+    return 1
+}
+
+acquire_head_lock() {
+    attempt=0
+    while [ "$attempt" -lt 100 ]
+    do
+        if "$PYTHON_BIN" -I -c "$PUBLISH_CODE" install \
+            --source "$SHARED_HEAD_PATH" \
+            --destination "$SHARED_HEAD_LOCK" \
+            --owner-link "$HEAD_LOCK_OWNER_PATH" 2>/dev/null; then
+            return 0
+        fi
+        path_exists "$HEAD_LOCK_OWNER_PATH" && return 1
+        attempt=$((attempt + 1))
+        sleep 0.05
+    done
+    return 1
+}
+
+release_index_lock_to_recovery() {
+    index_lock_is_owned || return 0
+    INDEX_LOCK_RECOVERY="${RECOVERY_DIR}/index.lock.aborted"
+    if path_exists "$INDEX_LOCK_RECOVERY"; then
+        return 1
+    fi
+    mv -n -- "$SHARED_INDEX_LOCK" "$INDEX_LOCK_RECOVERY" || return 1
+    [ -f "$INDEX_LOCK_RECOVERY" ] \
+        && [ "$INDEX_LOCK_OWNER_PATH" -ef "$INDEX_LOCK_RECOVERY" ]
+}
+
+release_head_lock_to_recovery() {
+    head_lock_is_owned || return 0
+    HEAD_LOCK_SEQUENCE=$((HEAD_LOCK_SEQUENCE + 1))
+    HEAD_LOCK_RECOVERY="${RECOVERY_DIR}/HEAD.lock.released.${HEAD_LOCK_SEQUENCE}"
+    if path_exists "$HEAD_LOCK_RECOVERY"; then
+        return 1
+    fi
+    mv -n -- "$SHARED_HEAD_LOCK" "$HEAD_LOCK_RECOVERY" || return 1
+    [ -f "$HEAD_LOCK_RECOVERY" ] \
+        && [ "$HEAD_LOCK_OWNER_PATH" -ef "$HEAD_LOCK_RECOVERY" ]
 }
 
 cleanup_retrobot() {
-    if [ "$PUBLISHED" = "1" ] && [ "$COMMITTED" != "1" ]; then
-        if published_paths_are_owned; then
-            git reset -q HEAD -- "$RETRO_PATH" "$TIMELINE_PATH" 2>/dev/null || true
-            rm -f -- "$RETRO_ABS_PATH"
-            if [ "$TIMELINE_HAD_ORIGINAL" = "1" ] && [ -n "$TIMELINE_BACKUP" ]; then
-                mv -f -- "$TIMELINE_BACKUP" "$TIMELINE_ABS_PATH" 2>/dev/null || true
-                TIMELINE_BACKUP=
-            else
-                rm -f -- "$TIMELINE_ABS_PATH"
+    refresh_ref_state
+    if index_lock_is_owned; then
+        if [ "$REF_UPDATED" = "1" ] && head_lock_is_owned \
+            && head_ref_matches "$RETRO_COMMIT"; then
+            if ! mv -f -- "$SHARED_INDEX_LOCK" "$SHARED_INDEX_PATH"; then
+                PRESERVE_INDEX=1
             fi
-        else
-            echo "ℹ Retrobot: 게시 경로 소유권이 달라 자동 rollback하지 않습니다."
+        elif ! release_index_lock_to_recovery; then
+            PRESERVE_INDEX=1
+            echo "ℹ Retrobot: 안전하게 해제하지 못한 index lock을 보존합니다."
         fi
     fi
-    rm -f -- "$TEMP_ABS_PATH"
-    if [ -n "$SKILL_SNAPSHOT_PATH" ]; then
-        rm -f -- "$SKILL_SNAPSHOT_PATH"
+    if head_lock_is_owned && ! release_head_lock_to_recovery; then
+        echo "ℹ Retrobot: 안전하게 해제하지 못한 HEAD lock을 보존합니다."
     fi
-    if [ -n "$WORKLOG_SECTION_PATH" ]; then
-        rm -f -- "$WORKLOG_SECTION_PATH"
+
+    if [ "$REF_UPDATED" != "1" ] \
+        && { path_exists "$RETRO_ABS_PATH" || path_exists "$TIMELINE_OWNER_PATH"; }; then
+        echo "ℹ Retrobot: 실패 후 공개된 파일과 inode는 자동 삭제하지 않고 보존합니다."
     fi
-    if [ -n "$TIMELINE_NEXT" ]; then
-        rm -f -- "$TIMELINE_NEXT"
+
+    if [ -n "$TEMP_OWNER_PATH" ] && [ -f "$TEMP_OWNER_PATH" ] \
+        && [ -n "$TEMP_ABS_PATH" ] && [ "$TEMP_OWNER_PATH" -ef "$TEMP_ABS_PATH" ]; then
+        rm -f -- "$TEMP_ABS_PATH"
     fi
-    if [ -n "$TIMELINE_BACKUP" ]; then
-        rm -f -- "$TIMELINE_BACKUP"
+    if [ -n "$TEMP_OWNER_PATH" ]; then
+        rm -f -- "$TEMP_OWNER_PATH"
     fi
+    for private_path in "$TIMELINE_BASE" "$TIMELINE_NEXT" "$HEAD_NEXT"
+    do
+        if [ -n "$private_path" ]; then
+            rm -f -- "$private_path"
+        fi
+    done
     case "${RETROBOT_RUN_DIR:-}" in
         /tmp/officeagent-retrobot.??????)
             find "$RETROBOT_RUN_DIR" -xdev -mindepth 1 -delete 2>/dev/null || true
             rmdir -- "$RETROBOT_RUN_DIR" 2>/dev/null || true
+            ;;
+    esac
+    case "${RETROBOT_INDEX_DIR:-}" in
+        "${GIT_DIR}"/retrobot-index.??????)
+            if [ "$PRESERVE_INDEX" != "1" ]; then
+                find "$RETROBOT_INDEX_DIR" -xdev -mindepth 1 -delete 2>/dev/null || true
+                rmdir -- "$RETROBOT_INDEX_DIR" 2>/dev/null || true
+            fi
             ;;
     esac
 }
@@ -160,83 +324,110 @@ cleanup_retrobot() {
 trap cleanup_retrobot EXIT
 trap 'exit 1' HUP INT TERM
 
-if ! execution_inputs_match_commit; then
-    echo "ℹ Retrobot: hook 실행 파일에 미커밋 변경이 있어 생성을 건너뜁니다."
+if ! committed_file_matches_worktree "$HOOK_RELPATH"; then
+    echo "ℹ Retrobot: hook에 미커밋 변경이 있어 생성을 건너뜁니다."
     exit 0
 fi
-if ! timeline_matches_preimage; then
-    echo "ℹ Retrobot: HEAD·index·회고 경로가 기준 commit과 달라 생성을 건너뜁니다."
-    exit 0
-fi
-
-SKILL_SNAPSHOT_PATH=$(mktemp "${GIT_DIR}/retrobot-skill.XXXXXX") || exit 0
-WORKLOG_SECTION_PATH=$(mktemp "${GIT_DIR}/retrobot-worklog.XXXXXX") || exit 0
-if ! git show "${COMMIT_SHA}:${SKILL_RELPATH}" >"$SKILL_SNAPSHOT_PATH" \
-    || [ ! -s "$SKILL_SNAPSHOT_PATH" ]; then
-    echo "ℹ Retrobot: committed skill을 읽지 못해 회고 생성을 건너뜁니다."
-    exit 0
-fi
-if ! git show "${COMMIT_SHA}:${WORKLOG_RELPATH}" \
-    | "$PYTHON_BIN" "$CONTEXT_PATH" >"$WORKLOG_SECTION_PATH"; then
-    echo "ℹ Retrobot: 최신 작업 로그 구간을 추출하지 못해 회고 생성을 건너뜁니다."
-    exit 0
-fi
-if [ ! -s "$WORKLOG_SECTION_PATH" ]; then
-    echo "ℹ Retrobot: 최신 작업 로그 구간이 비어 생성을 건너뜁니다."
+HOOK_MODE=$(git ls-tree "$COMMIT_SHA" -- "$HOOK_RELPATH" | cut -d ' ' -f 1)
+if [ "$HOOK_MODE" != "100755" ]; then
+    echo "ℹ Retrobot: committed hook mode가 실행 계약과 달라 생성을 건너뜁니다."
     exit 0
 fi
 
+CONTEXT_CODE=$(git show "${COMMIT_SHA}:${CONTEXT_RELPATH}" 2>/dev/null) || exit 0
+GUARD_CODE=$(git show "${COMMIT_SHA}:${GUARD_RELPATH}" 2>/dev/null) || exit 0
+PUBLISH_CODE=$(git show "${COMMIT_SHA}:${PUBLISH_RELPATH}" 2>/dev/null) || exit 0
+SKILL_CONTENT=$(git show "${COMMIT_SHA}:${SKILL_RELPATH}" 2>/dev/null) || exit 0
+WORKLOG_SECTION=$(git show "${COMMIT_SHA}:${WORKLOG_RELPATH}" 2>/dev/null \
+    | "$PYTHON_BIN" -I -c "$CONTEXT_CODE") || exit 0
+if [ -z "$CONTEXT_CODE" ] || [ -z "$GUARD_CODE" ] || [ -z "$PUBLISH_CODE" ] \
+    || [ -z "$SKILL_CONTENT" ] || [ -z "$WORKLOG_SECTION" ]; then
+    echo "ℹ Retrobot: committed 실행 입력을 읽지 못해 생성을 건너뜁니다."
+    exit 0
+fi
+
+RECOVERY_DIR=$(mktemp -d "${GIT_DIR}/retrobot-recovery.${COMMIT_SHA}.XXXXXX") \
+    || exit 0
+RETRO_OWNER_PATH="${RECOVERY_DIR}/retro.owner"
+TIMELINE_OWNER_PATH="${RECOVERY_DIR}/timeline.owner"
+INDEX_LOCK_OWNER_PATH="${RECOVERY_DIR}/index.owner"
+HEAD_LOCK_OWNER_PATH="${RECOVERY_DIR}/HEAD.owner"
+
+if [ ! -f "$SHARED_INDEX_PATH" ] || [ -L "$SHARED_INDEX_PATH" ]; then
+    echo "ℹ Retrobot: Git index preimage가 안전한 regular file이 아닙니다."
+    exit 0
+fi
+if ! acquire_index_lock; then
+    echo "ℹ Retrobot: Git index가 사용 중이거나 안전한 lock을 만들 수 없습니다."
+    exit 0
+fi
+if [ ! -f "$SHARED_HEAD_PATH" ] || [ -L "$SHARED_HEAD_PATH" ] \
+    || ! acquire_head_lock; then
+    echo "ℹ Retrobot: HEAD가 사용 중이거나 안전한 lock을 만들 수 없습니다."
+    exit 0
+fi
+if ! index_lock_is_owned || ! head_lock_is_owned || ! capture_publication_base \
+    || ! publication_preimage_matches; then
+    echo "ℹ Retrobot: branch·HEAD·index·회고 경로가 안전한 기준과 달라 중단합니다."
+    exit 0
+fi
+
+TEMP_ABS_PATH=$(mktemp "${GIT_DIR}/retrobot-output.XXXXXX") || exit 0
+TEMP_OWNER_PATH=$(mktemp "${GIT_DIR}/retrobot-output-owner.XXXXXX") || exit 0
+rm -f -- "$TEMP_OWNER_PATH" || exit 0
+ln -- "$TEMP_ABS_PATH" "$TEMP_OWNER_PATH" || exit 0
 RETROBOT_RUN_DIR=$(mktemp -d /tmp/officeagent-retrobot.XXXXXX) || {
     echo "ℹ Retrobot: 격리 실행 디렉터리를 생성하지 못해 회고 생성을 건너뜁니다."
     exit 0
 }
-
 COMMITTED_AT=$(git log -1 --format=%cI "$COMMIT_SHA" 2>/dev/null)
-COMMIT_SHORTSTAT=$(LC_ALL=C git diff-tree --shortstat --no-commit-id --root "$COMMIT_SHA" 2>/dev/null | sed -n '$p')
+COMMIT_SHORTSTAT=$(LC_ALL=C git diff-tree --shortstat --no-commit-id --root \
+    "$COMMIT_SHA" 2>/dev/null | sed -n '$p')
 if [ -z "$COMMIT_SHORTSTAT" ]; then
     COMMIT_SHORTSTAT="0 files changed"
 fi
 
 echo "🤖 Retrobot: 회고 생성 중..."
-
 {
-    cat "$SKILL_SNAPSHOT_PATH"
-    printf "\n\n## 이번 실행 입력\n\n"
+    printf "%s\n" "$SKILL_CONTENT"
+    printf "\n## 이번 실행 입력\n\n"
     printf "### 최신 커밋\n\n"
     printf "full_sha=%s\n" "$COMMIT_SHA"
     printf "committed_at=%s\n" "$COMMITTED_AT"
     printf "aggregate_shortstat=%s\n" "$COMMIT_SHORTSTAT"
     printf "\n### 이 실행의 추가 출력 계약\n\n"
-    printf '%s\n' "- 요약의 기준 커밋 값은 위 full_sha 전체만 사용한다."
-    printf '%s\n' "- SKILL.md의 heading을 순서대로 한 번씩만 사용한다."
-    printf '%s\n' "- URL, link, image, code fence, credential과 필수 직접 보완 comment 외 HTML을 출력하지 않는다."
+    printf '%s\n' "- 제공된 JSON schema의 일곱 필드만 반환한다."
+    printf '%s\n' "- 각 값은 입력에서 확인한 사실만 담은 한 줄 한국어로 작성한다."
+    printf '%s\n' "- URL, link, image, code fence, HTML, credential과 식별 정보를 값에 넣지 않는다."
     printf "\n\n### 최신 제한 작업 로그\n\n"
-    cat "$WORKLOG_SECTION_PATH"
-} | "$PYTHON_BIN" "$GUARD_PATH" \
+    printf "%s\n" "$WORKLOG_SECTION"
+} | "$PYTHON_BIN" -I -c "$GUARD_CODE" \
     --codex "$CODEX_BIN" \
     --run-directory "$RETROBOT_RUN_DIR" \
     --output "$TEMP_ABS_PATH" \
     --commit-sha "$COMMIT_SHA" \
+    --generated-at-kst "$STAMP" \
     --timeout-seconds 300
 CODEX_STATUS=$?
 
-if [ "$CODEX_STATUS" -ne 0 ] || [ ! -s "$TEMP_ABS_PATH" ]; then
-    rm -f -- "$TEMP_ABS_PATH" "$RETRO_ABS_PATH"
+if [ "$CODEX_STATUS" -ne 0 ] || [ ! -s "$TEMP_ABS_PATH" ] \
+    || [ ! -f "$TEMP_OWNER_PATH" ] \
+    || [ ! "$TEMP_OWNER_PATH" -ef "$TEMP_ABS_PATH" ]; then
     echo "ℹ Retrobot: 제한 실행 또는 출력 검증에 실패해 회고를 남기지 않습니다."
     exit 0
 fi
-if ! timeline_matches_preimage; then
-    echo "ℹ Retrobot: 생성 중 HEAD·index·회고 경로가 바뀌어 게시하지 않습니다."
+if ! publication_preimage_matches || ! index_lock_is_owned; then
+    echo "ℹ Retrobot: 생성 중 branch·HEAD·index·회고 경로가 바뀌어 게시하지 않습니다."
     exit 0
 fi
 
+TIMELINE_BASE=$(mktemp "${GIT_DIR}/retrobot-timeline-base.XXXXXX") || exit 0
 TIMELINE_NEXT=$(mktemp "${GIT_DIR}/retrobot-timeline-next.XXXXXX") || exit 0
-if [ -f "$TIMELINE_ABS_PATH" ]; then
-    TIMELINE_HAD_ORIGINAL=1
-    TIMELINE_BACKUP=$(mktemp "${GIT_DIR}/retrobot-timeline-backup.XXXXXX") || exit 0
-    cp -p -- "$TIMELINE_ABS_PATH" "$TIMELINE_BACKUP" || exit 0
-    cp -- "$TIMELINE_ABS_PATH" "$TIMELINE_NEXT" || exit 0
+if git cat-file -e "${PUBLICATION_BASE}:${TIMELINE_PATH}" 2>/dev/null; then
+    git show "${PUBLICATION_BASE}:${TIMELINE_PATH}" >"$TIMELINE_BASE" || exit 0
+    cp -- "$TIMELINE_BASE" "$TIMELINE_NEXT" || exit 0
 else
+    : >"$TIMELINE_BASE"
     {
         printf "# Retrobot 타임라인\n\n"
         printf "| 시각 (KST) | 회고 | 기준 커밋 |\n"
@@ -249,47 +440,123 @@ printf "| %s | [%s](./%s) | %s |\n" \
     "$(basename "$RETRO_PATH")" \
     "$COMMIT_SHA" >>"$TIMELINE_NEXT"
 
-if ! timeline_matches_preimage; then
-    echo "ℹ Retrobot: 게시 직전 HEAD·index·회고 경로가 바뀌어 중단합니다."
+PUBLISHED_RETRO_HASH=$(git hash-object -w "$TEMP_ABS_PATH") || exit 0
+PUBLISHED_TIMELINE_HASH=$(git hash-object -w "$TIMELINE_NEXT") || exit 0
+RETROBOT_INDEX_DIR=$(mktemp -d "${GIT_DIR}/retrobot-index.XXXXXX") || exit 0
+RETROBOT_INDEX="${RETROBOT_INDEX_DIR}/index"
+RETROBOT_TREE_INDEX="${RETROBOT_INDEX_DIR}/tree-index"
+GIT_INDEX_FILE="$RETROBOT_TREE_INDEX" git read-tree "$PUBLICATION_BASE" || exit 0
+GIT_INDEX_FILE="$RETROBOT_TREE_INDEX" git update-index --add \
+    --cacheinfo "100644,$PUBLISHED_RETRO_HASH,$RETRO_PATH" || exit 0
+GIT_INDEX_FILE="$RETROBOT_TREE_INDEX" git update-index --add \
+    --cacheinfo "100644,$PUBLISHED_TIMELINE_HASH,$TIMELINE_PATH" || exit 0
+RETRO_TREE=$(GIT_INDEX_FILE="$RETROBOT_TREE_INDEX" git write-tree) || exit 0
+if ! tree_contains_only_publication "$RETRO_TREE"; then
+    echo "ℹ Retrobot: 생성 tree가 두 회고 경로 계약과 달라 commit하지 않습니다."
     exit 0
 fi
-PUBLISHED_RETRO_HASH=$(git hash-object "$TEMP_ABS_PATH") || exit 0
-PUBLISHED_TIMELINE_HASH=$(git hash-object "$TIMELINE_NEXT") || exit 0
-mv -- "$TEMP_ABS_PATH" "$RETRO_ABS_PATH" || exit 0
-if ! mv -- "$TIMELINE_NEXT" "$TIMELINE_ABS_PATH"; then
-    rm -f -- "$RETRO_ABS_PATH"
-    exit 0
-fi
-TIMELINE_NEXT=
-if [ "$(git hash-object "$RETRO_ABS_PATH" 2>/dev/null)" != "$PUBLISHED_RETRO_HASH" ] \
-    || [ "$(git hash-object "$TIMELINE_ABS_PATH" 2>/dev/null)" != "$PUBLISHED_TIMELINE_HASH" ]; then
-    echo "ℹ Retrobot: 게시 중 경로 내용이 바뀌어 자동 commit하지 않습니다."
-    exit 0
-fi
-
-if ! git add -- "$RETRO_PATH" "$TIMELINE_PATH"; then
-    echo "ℹ Retrobot: 생성 파일 stage에 실패해 경로를 그대로 두고 중단합니다."
-    exit 0
-fi
-PUBLISHED=1
-if ! published_paths_are_owned; then
-    echo "ℹ Retrobot: stage 뒤 HEAD 또는 게시 경로가 바뀌어 자동 commit하지 않습니다."
-    exit 0
-fi
-EXPECTED_STAGED_PATHS=$(printf "%s\n%s\n" "$TIMELINE_PATH" "$RETRO_PATH" | LC_ALL=C sort)
-ACTUAL_STAGED_PATHS=$(git diff --cached --name-only "$COMMIT_SHA")
-if [ "$ACTUAL_STAGED_PATHS" != "$EXPECTED_STAGED_PATHS" ]; then
-    echo "ℹ Retrobot: 예상하지 않은 staged path가 있어 자동 commit하지 않습니다."
-    exit 0
-fi
-
-RETRO_TREE=$(git write-tree) || exit 0
 RETRO_COMMIT=$(printf "%s\n" "docs(retro): 자동 회고 생성 by Retrobot" \
-    | git commit-tree "$RETRO_TREE" -p "$COMMIT_SHA") || exit 0
-if git update-ref -m "commit: docs(retro): 자동 회고 생성 by Retrobot" \
-    HEAD "$RETRO_COMMIT" "$COMMIT_SHA"; then
-    COMMITTED=1
-    echo "✅ Retrobot: ${RETRO_PATH} 생성 및 커밋 완료"
-else
-    echo "ℹ Retrobot: HEAD가 바뀌어 자동 회고 commit을 게시하지 않습니다."
+    | git commit-tree "$RETRO_TREE" -p "$PUBLICATION_BASE") || exit 0
+
+cp -- "$SHARED_INDEX_PATH" "$RETROBOT_INDEX" || exit 0
+GIT_INDEX_FILE="$RETROBOT_INDEX" git update-index --add \
+    --cacheinfo "100644,$PUBLISHED_RETRO_HASH,$RETRO_PATH" || exit 0
+GIT_INDEX_FILE="$RETROBOT_INDEX" git update-index --add \
+    --cacheinfo "100644,$PUBLISHED_TIMELINE_HASH,$TIMELINE_PATH" || exit 0
+if [ "$(GIT_INDEX_FILE="$RETROBOT_INDEX" git ls-files --stage -- "$RETRO_PATH" \
+        | awk '{print $2}')" != "$PUBLISHED_RETRO_HASH" ] \
+    || [ "$(GIT_INDEX_FILE="$RETROBOT_INDEX" git ls-files --stage -- "$TIMELINE_PATH" \
+        | awk '{print $2}')" != "$PUBLISHED_TIMELINE_HASH" ]; then
+    echo "ℹ Retrobot: 사용자 index snapshot에 두 회고 entry를 반영하지 못했습니다."
+    exit 0
 fi
+
+if ! "$PYTHON_BIN" -I -c "$PUBLISH_CODE" install \
+    --source "$TEMP_ABS_PATH" \
+    --destination "$RETRO_ABS_PATH" \
+    --owner-link "$RETRO_OWNER_PATH"; then
+    echo "ℹ Retrobot: 회고 대상 경로가 이미 있거나 안전하게 게시할 수 없습니다."
+    exit 0
+fi
+
+if git cat-file -e "${PUBLICATION_BASE}:${TIMELINE_PATH}" 2>/dev/null; then
+    if ! "$PYTHON_BIN" -I -c "$PUBLISH_CODE" append \
+        --destination "$TIMELINE_ABS_PATH" \
+        --expected "$TIMELINE_BASE" \
+        --replacement "$TIMELINE_NEXT" \
+        --owner-link "$TIMELINE_OWNER_PATH"; then
+        echo "ℹ Retrobot: timeline preimage가 달라 append하지 않습니다."
+        exit 0
+    fi
+elif ! "$PYTHON_BIN" -I -c "$PUBLISH_CODE" install \
+    --source "$TIMELINE_NEXT" \
+    --destination "$TIMELINE_ABS_PATH" \
+    --owner-link "$TIMELINE_OWNER_PATH"; then
+    echo "ℹ Retrobot: timeline 경로가 생겨 덮어쓰지 않습니다."
+    exit 0
+fi
+
+if ! published_paths_are_owned; then
+    echo "ℹ Retrobot: 게시 중 branch·HEAD·index·경로가 바뀌어 자동 commit하지 않습니다."
+    exit 0
+fi
+if ! "$PYTHON_BIN" -I -c "$PUBLISH_CODE" replace-owned \
+    --source "$RETROBOT_INDEX" \
+    --destination "$SHARED_INDEX_LOCK" \
+    --owner-link "$INDEX_LOCK_OWNER_PATH" \
+    || ! cmp -s -- "$RETROBOT_INDEX" "$SHARED_INDEX_LOCK"; then
+    PRESERVE_INDEX=1
+    echo "ℹ Retrobot: 소유한 index lock을 최종 tree로 만들지 못했습니다."
+    exit 0
+fi
+if ! published_paths_are_owned || ! index_lock_is_owned; then
+    echo "ℹ Retrobot: ref 전환 직전 소유권 검증에 실패했습니다."
+    exit 0
+fi
+
+if [ "$DETACHED_HEAD" = "1" ]; then
+    HEAD_NEXT=$(mktemp "${GIT_DIR}/retrobot-head-next.XXXXXX") || exit 0
+    printf "%s\n" "$RETRO_COMMIT" >"$HEAD_NEXT" || exit 0
+    if "$PYTHON_BIN" -I -c "$PUBLISH_CODE" replace-owned \
+        --source "$HEAD_NEXT" \
+        --destination "$SHARED_HEAD_LOCK" \
+        --owner-link "$HEAD_LOCK_OWNER_PATH" \
+        && cmp -s -- "$HEAD_NEXT" "$SHARED_HEAD_LOCK" \
+        && mv -f -- "$SHARED_HEAD_LOCK" "$SHARED_HEAD_PATH"; then
+        REF_UPDATED=1
+    else
+        echo "ℹ Retrobot: detached HEAD를 안전하게 전환하지 못했습니다."
+        exit 0
+    fi
+else
+    if ! release_head_lock_to_recovery; then
+        echo "ℹ Retrobot: ref 전환 전 HEAD lock을 안전하게 해제하지 못했습니다."
+        exit 0
+    fi
+    if git update-ref -m "commit: docs(retro): 자동 회고 생성 by Retrobot" \
+        "$REF_TARGET" "$RETRO_COMMIT" "$PUBLICATION_BASE"; then
+        REF_UPDATED=1
+    else
+        echo "ℹ Retrobot: 대상 branch가 바뀌어 자동 회고 commit을 게시하지 않습니다."
+        exit 0
+    fi
+fi
+
+HEAD_LOCK_OWNER_PATH="${RECOVERY_DIR}/HEAD.finalize.owner"
+if ! acquire_head_lock || ! head_lock_is_owned \
+    || ! head_ref_matches "$RETRO_COMMIT"; then
+    echo "ℹ Retrobot: ref 전환 뒤 HEAD finalize lock을 획득하지 못했습니다."
+    exit 0
+fi
+
+if ! index_lock_is_owned \
+    || ! mv -f -- "$SHARED_INDEX_LOCK" "$SHARED_INDEX_PATH"; then
+    PRESERVE_INDEX=1
+    echo "ℹ Retrobot: 회고 commit은 생성됐지만 index 복구 파일을 Git dir에 보존합니다."
+    exit 0
+fi
+if ! release_head_lock_to_recovery; then
+    echo "ℹ Retrobot: HEAD finalize lock을 복구 저널로 옮기지 못했습니다."
+    exit 0
+fi
+echo "✅ Retrobot: ${RETRO_PATH} 생성 및 커밋 완료 (Git 복구 저널 보존)"

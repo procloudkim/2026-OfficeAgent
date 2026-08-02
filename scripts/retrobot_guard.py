@@ -1,11 +1,13 @@
-"""Run Retrobot's Codex subprocess and validate its Markdown fail-closed."""
+"""Run Retrobot's Codex subprocess and render validated retrospective Markdown."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import signal
+import stat
 import subprocess
 import sys
 import unicodedata
@@ -16,6 +18,40 @@ from urllib.parse import urlsplit
 
 MAX_PROMPT_BYTES = 16 * 1024
 MAX_RETRO_BYTES = 64 * 1024
+_STRUCTURED_FIELDS = (
+    "main_goal",
+    "validation_status",
+    "performed",
+    "keep",
+    "problem",
+    "try_next",
+    "evidence",
+)
+_MODEL_VALUE_SCHEMA = {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 500,
+}
+_MODEL_ITEMS_SCHEMA = {
+    "type": "array",
+    "items": _MODEL_VALUE_SCHEMA,
+    "minItems": 1,
+    "maxItems": 6,
+}
+_RETROBOT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "main_goal": _MODEL_VALUE_SCHEMA,
+        "validation_status": _MODEL_VALUE_SCHEMA,
+        "performed": _MODEL_ITEMS_SCHEMA,
+        "keep": _MODEL_ITEMS_SCHEMA,
+        "problem": _MODEL_ITEMS_SCHEMA,
+        "try_next": _MODEL_ITEMS_SCHEMA,
+        "evidence": _MODEL_ITEMS_SCHEMA,
+    },
+    "required": list(_STRUCTURED_FIELDS),
+}
 
 _OPTIONAL_ENVIRONMENT = (
     "ALL_PROXY",
@@ -193,6 +229,135 @@ def validate_retrobot_prompt(
         raise RetrobotGuardError("Retrobot prompt contains inherited private data")
 
 
+def render_structured_retrospective(
+    raw_output: bytes,
+    *,
+    expected_commit_sha: str,
+    generated_at_kst: str,
+    forbidden_values: Sequence[str] = (),
+) -> bytes:
+    """Validate schema-shaped model data and render canonical Markdown locally."""
+
+    if not 0 < len(raw_output) <= MAX_RETRO_BYTES:
+        raise RetrobotGuardError("Generated retrospective size is outside the allowed range")
+    _validate_commit_sha(expected_commit_sha)
+    try:
+        payload = json.loads(
+            raw_output.decode("utf-8"),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        raise RetrobotGuardError("Generated retrospective is not valid JSON") from None
+    if not isinstance(payload, dict) or tuple(sorted(payload)) != tuple(
+        sorted(_STRUCTURED_FIELDS)
+    ):
+        raise RetrobotGuardError("Generated retrospective JSON fields are invalid")
+
+    main_goal = _validated_model_value(payload["main_goal"], forbidden_values)
+    validation_status = _validated_model_value(
+        payload["validation_status"], forbidden_values
+    )
+    sections = {
+        field: _validated_model_items(payload[field], forbidden_values)
+        for field in ("performed", "keep", "problem", "try_next", "evidence")
+    }
+    rendered_at = _validated_generated_at_kst(generated_at_kst)
+    markdown = "\n".join(
+        (
+            f"# Retrobot 회고 — {rendered_at} KST",
+            "",
+            "> 최신 커밋 메타데이터와 제한된 작업 로그를 바탕으로 자동 생성했습니다.",
+            "",
+            "## 요약",
+            "",
+            "| 항목 | 값 |",
+            "|---|---|",
+            f"| 기준 커밋 | `{expected_commit_sha}` |",
+            f"| 주요 목표 | {main_goal} |",
+            f"| 검증 상태 | {validation_status} |",
+            "",
+            "## 수행 내용",
+            "",
+            *_markdown_bullets(sections["performed"]),
+            "",
+            "## KPT 회고",
+            "",
+            "### Keep (좋았던 것)",
+            "",
+            *_markdown_bullets(sections["keep"]),
+            "",
+            "### Problem (나빴던 것)",
+            "",
+            *_markdown_bullets(sections["problem"]),
+            "",
+            "### Try (개선해야 할 것)",
+            "",
+            *_markdown_bullets(sections["try_next"]),
+            "",
+            "## 증거",
+            "",
+            *_markdown_bullets(sections["evidence"]),
+            "",
+            "## 직접 보완",
+            "",
+            _DIRECT_COMPLETION_COMMENT,
+            "",
+        )
+    ).encode("utf-8")
+    validate_retrobot_output(
+        markdown,
+        expected_commit_sha=expected_commit_sha,
+        forbidden_values=forbidden_values,
+    )
+    return markdown
+
+
+def _validated_model_items(value: object, forbidden_values: Sequence[str]) -> list[str]:
+    if not isinstance(value, list) or not 1 <= len(value) <= 6:
+        raise RetrobotGuardError("Generated retrospective JSON list is invalid")
+    return [_validated_model_value(item, forbidden_values) for item in value]
+
+
+def _validated_model_value(value: object, forbidden_values: Sequence[str]) -> str:
+    if not isinstance(value, str) or not 1 <= len(value) <= 500:
+        raise RetrobotGuardError("Generated retrospective JSON value is invalid")
+    if value != value.strip():
+        raise RetrobotGuardError("Generated retrospective JSON value has outer whitespace")
+    if value.splitlines() != [value] or "|" in value:
+        raise RetrobotGuardError("Generated retrospective JSON value is not one safe line")
+    probe = f"{_DIRECT_COMPLETION_COMMENT}\n{value}"
+    _validate_text_safety(probe, forbidden_values=forbidden_values)
+    return value
+
+
+def _markdown_bullets(items: Sequence[str]) -> tuple[str, ...]:
+    return tuple(f"- {item}" for item in items)
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise RetrobotGuardError("Generated retrospective JSON has duplicate fields")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_: str) -> object:
+    raise RetrobotGuardError("Generated retrospective JSON has a non-finite value")
+
+
+def _validated_generated_at_kst(value: str) -> str:
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{6}", value) is None:
+        raise RetrobotGuardError("Retrobot generation time is invalid")
+    try:
+        generated_at = datetime.strptime(value, "%Y-%m-%d_%H%M%S")
+    except ValueError:
+        raise RetrobotGuardError("Retrobot generation time is invalid") from None
+    return generated_at.strftime("%Y-%m-%d %H:%M")
+
+
 def execute_retrobot(
     *,
     prompt: bytes,
@@ -200,14 +365,17 @@ def execute_retrobot(
     run_directory: Path,
     output_path: Path,
     expected_commit_sha: str,
+    generated_at_kst: str,
     source_environment: Mapping[str, str],
     timeout_seconds: float,
 ) -> None:
     """Execute Codex with bounded resources and leave only a validated output file."""
 
+    output_identity: tuple[int, int] | None = None
     try:
         _validate_commit_sha(expected_commit_sha)
-        _validate_execution_inputs(
+        _validated_generated_at_kst(generated_at_kst)
+        output_identity = _validate_execution_inputs(
             prompt=prompt,
             codex_path=codex_path,
             run_directory=run_directory,
@@ -221,25 +389,25 @@ def execute_retrobot(
             run_directory=run_directory,
             codex_path=codex_path,
         )
-        _run_codex_process(
+        raw_output = _run_codex_process(
             prompt=prompt,
             codex_path=codex_path,
             run_directory=run_directory,
-            output_path=output_path,
             environment=environment,
             timeout_seconds=timeout_seconds,
         )
-        raw_output = output_path.read_bytes()
-        validate_retrobot_output(
+        rendered = render_structured_retrospective(
             raw_output,
             expected_commit_sha=expected_commit_sha,
+            generated_at_kst=generated_at_kst,
             forbidden_values=forbidden_values,
         )
+        _write_owned_output(output_path, output_identity, rendered)
     except RetrobotGuardError:
-        output_path.unlink(missing_ok=True)
+        _unlink_owned_output(output_path, output_identity)
         raise
     except (OSError, subprocess.SubprocessError):
-        output_path.unlink(missing_ok=True)
+        _unlink_owned_output(output_path, output_identity)
         raise RetrobotGuardError("Retrobot execution failed") from None
 
 
@@ -391,19 +559,28 @@ def _validate_execution_inputs(
     run_directory: Path,
     output_path: Path,
     timeout_seconds: float,
-) -> None:
+) -> tuple[int, int]:
     if not 0 < len(prompt) <= MAX_PROMPT_BYTES:
         raise RetrobotGuardError("Retrobot prompt size is outside the allowed range")
     if not codex_path.is_file() or not os.access(codex_path, os.X_OK):
         raise RetrobotGuardError("Codex executable is unavailable")
-    if not run_directory.is_dir() or any(run_directory.iterdir()):
+    if (
+        not run_directory.is_dir()
+        or run_directory.is_symlink()
+        or any(run_directory.iterdir())
+    ):
         raise RetrobotGuardError("Retrobot run directory is not empty")
-    if not output_path.parent.is_dir() or output_path.is_symlink():
+    if not output_path.parent.is_dir() or output_path.parent.is_symlink():
         raise RetrobotGuardError("Retrobot output location is invalid")
-    if output_path.exists() and (not output_path.is_file() or output_path.stat().st_size != 0):
+    try:
+        output_stat = output_path.lstat()
+    except FileNotFoundError:
+        raise RetrobotGuardError("Retrobot output location is unavailable") from None
+    if not stat.S_ISREG(output_stat.st_mode) or output_stat.st_size != 0:
         raise RetrobotGuardError("Retrobot output location is not empty")
     if not 0 < timeout_seconds <= 600:
         raise RetrobotGuardError("Retrobot timeout is outside the allowed range")
+    return output_stat.st_dev, output_stat.st_ino
 
 
 def _validate_commit_sha(commit_sha: str) -> None:
@@ -411,7 +588,12 @@ def _validate_commit_sha(commit_sha: str) -> None:
         raise RetrobotGuardError("Commit identifier is invalid")
 
 
-def build_codex_command(codex_path: Path) -> list[str]:
+def build_codex_command(
+    codex_path: Path,
+    *,
+    schema_path: Path,
+    final_message_path: Path,
+) -> list[str]:
     """Build the fixed, tool-free Codex invocation used by Retrobot."""
 
     return [
@@ -432,6 +614,10 @@ def build_codex_command(codex_path: Path) -> list[str]:
         'approval_policy="never"',
         "-c",
         "shell_environment_policy.inherit=none",
+        "--output-schema",
+        str(schema_path),
+        "--output-last-message",
+        str(final_message_path),
         "-",
     ]
 
@@ -441,21 +627,35 @@ def _run_codex_process(
     prompt: bytes,
     codex_path: Path,
     run_directory: Path,
-    output_path: Path,
     environment: Mapping[str, str],
     timeout_seconds: float,
-) -> None:
-    command = build_codex_command(codex_path)
-    popen_options: dict[str, object] = {}
-    if os.name == "posix":
-        popen_options["start_new_session"] = True
-    with output_path.open("wb") as output:
+) -> bytes:
+    schema_path = run_directory / "response-schema.json"
+    final_message_path = run_directory / "last-message.json"
+    try:
+        with schema_path.open("x", encoding="utf-8") as schema_file:
+            json.dump(
+                _RETROBOT_SCHEMA,
+                schema_file,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        schema_path.chmod(0o600)
+        command = build_codex_command(
+            codex_path,
+            schema_path=schema_path,
+            final_message_path=final_message_path,
+        )
+        popen_options: dict[str, object] = {}
+        if os.name == "posix":
+            popen_options["start_new_session"] = True
         process = subprocess.Popen(  # noqa: S603 - exact executable is resolved by the hook.
             command,
             cwd=run_directory,
             env=dict(environment),
             stdin=subprocess.PIPE,
-            stdout=output,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             **popen_options,
         )
@@ -464,8 +664,68 @@ def _run_codex_process(
         except subprocess.TimeoutExpired:
             _terminate_process(process)
             raise RetrobotGuardError("Codex execution exceeded its time limit") from None
-    if process.returncode != 0:
-        raise RetrobotGuardError("Codex execution failed")
+        if process.returncode != 0:
+            raise RetrobotGuardError("Codex execution failed")
+        try:
+            final_stat = final_message_path.lstat()
+        except FileNotFoundError:
+            raise RetrobotGuardError("Codex final response is unavailable") from None
+        if (
+            not stat.S_ISREG(final_stat.st_mode)
+            or not 0 < final_stat.st_size <= MAX_RETRO_BYTES
+        ):
+            raise RetrobotGuardError("Codex final response is invalid")
+        return final_message_path.read_bytes()
+    finally:
+        cleanup_failed = False
+        for private_artifact in (schema_path, final_message_path):
+            try:
+                private_artifact.unlink(missing_ok=True)
+            except OSError:
+                cleanup_failed = True
+        if cleanup_failed:
+            raise RetrobotGuardError("Retrobot private response cleanup failed")
+
+
+def _write_owned_output(
+    output_path: Path,
+    expected_identity: tuple[int, int],
+    payload: bytes,
+) -> None:
+    flags = os.O_WRONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(output_path, flags)
+    try:
+        output_stat = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(output_stat.st_mode)
+            or (output_stat.st_dev, output_stat.st_ino) != expected_identity
+        ):
+            raise RetrobotGuardError("Retrobot output location changed during execution")
+        os.ftruncate(descriptor, 0)
+        with os.fdopen(descriptor, "wb", closefd=False) as output:
+            output.write(payload)
+            output.flush()
+    finally:
+        os.close(descriptor)
+
+
+def _unlink_owned_output(
+    output_path: Path,
+    expected_identity: tuple[int, int] | None,
+) -> None:
+    if expected_identity is None:
+        return
+    try:
+        output_stat = output_path.lstat()
+    except FileNotFoundError:
+        return
+    if (
+        stat.S_ISREG(output_stat.st_mode)
+        and (output_stat.st_dev, output_stat.st_ino) == expected_identity
+    ):
+        output_path.unlink()
 
 
 def _terminate_process(process: subprocess.Popen[bytes]) -> None:
@@ -493,6 +753,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--run-directory", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--commit-sha", required=True)
+    parser.add_argument("--generated-at-kst", required=True)
     parser.add_argument("--timeout-seconds", required=True, type=int)
     return parser.parse_args(argv)
 
@@ -507,6 +768,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_directory=args.run_directory,
             output_path=args.output,
             expected_commit_sha=args.commit_sha,
+            generated_at_kst=args.generated_at_kst,
             source_environment=os.environ,
             timeout_seconds=args.timeout_seconds,
         )

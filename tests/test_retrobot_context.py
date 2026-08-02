@@ -50,6 +50,20 @@ def test_later_dated_section_restarts_after_an_unrelated_h2() -> None:
     )
 
 
+@pytest.mark.parametrize("cutoff", ["##\tprivate", "##", "   ## private"])
+def test_commonmark_h2_variants_stop_the_section(cutoff: str) -> None:
+    raw = (
+        "## 2026-08-02 — latest\n"
+        "- included\n"
+        f"{cutoff}\n"
+        "- excluded\n"
+    ).encode()
+
+    assert extract_latest_worklog_section(raw).decode() == (
+        "## 2026-08-02 — latest\n- included\n"
+    )
+
+
 def test_section_accepts_8192_bytes_and_rejects_8193() -> None:
     heading = "## 2026-08-02 — latest\n".encode()
     exact = heading + b"a" * (MAX_SECTION_BYTES - len(heading))

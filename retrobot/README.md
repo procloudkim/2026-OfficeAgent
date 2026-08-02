@@ -13,9 +13,20 @@ Retrobot은 활성화된 post-commit 훅이 Codex에 제한된 커밋 문맥을 
    하나를 읽고 SHA·시각·aggregate shortstat와 함께 전달. 이전 로그·commit 제목·
    파일명·작성자·diff는 전달하지 않음
 3. 훅은 Codex를 read-only·ephemeral·never-approve 설정으로 실행하고,
-   SKILL은 명시적으로 전달된 입력만 근거로 사용하도록 지시
-4. Git-dir lock과 HEAD/index/path preimage를 재검사하고, 생성 성공 시 KPT 회고와
-   `retros/TIMELINE.md` 두 path만 stage해 기준 SHA가 그대로일 때만 원자적으로 commit
+   SKILL은 명시적으로 전달된 입력만 근거로 일곱 필드 JSON을 반환하도록 지시
+4. guard가 JSON을 다시 검사하고 SHA·시각·heading·직접 보완 표식이 포함된
+   canonical Markdown을 로컬에서 생성
+5. Git directory를 read-only로 lock하고 HEAD/index/path preimage를 재검사합니다.
+   커밋 blob의 helper를 직접 실행하고 회고 전용 private index로 두 path의 tree를
+   만듭니다.
+6. 표준 `index.lock`과 `HEAD.lock`을 Codex 호출 전에 bounded retry로 획득해 다른
+   commit·branch 전환을 막습니다. commit tree용 index와 사용자 상태를 보존할 final
+   index를 분리하고, 새 회고는 no-clobber로 설치하며 기존 timeline에는 검증된
+   suffix만 append합니다. ownership hard link는 `.git/retrobot-recovery.*`에 남겨
+   실패·동시 편집 때 공개 파일을 자동 삭제하지 않습니다. Git directory와
+   worktree가 다른 filesystem이거나 회고·timeline index entry가 stage 또는
+   `assume-unchanged`/`skip-worktree` 상태면 사용자 의도를 보존하고 안전하게
+   중단합니다.
 
 훅은 위 자동 회고 커밋, `RETROBOT_SKIP=1`, skill 파일 부재, Codex CLI 부재
 또는 생성 실패 시 회고 생성을 건너뜁니다. Claude fallback은 구현되어 있지
@@ -41,11 +52,12 @@ git config core.hooksPath .githooks
 
 ```
 retros/
-├── TIMELINE.md              # 전체 회고 타임라인
-├── 2026-04-09_1430_retro.md  # 개별 회고
+├── TIMELINE.md                # 전체 회고 타임라인
+├── 2026-04-09_143000_<full-sha>_retro.md # commit 고유 개별 회고
 └── ...
 ```
 
 ## 커스터마이징
 
-`retrobot/SKILL.md`를 편집하여 회고 형식, 분석 기준, 출력 포맷을 자유롭게 조정할 수 있습니다.
+`retrobot/SKILL.md`에서 분석 기준과 각 JSON 필드의 의미를 조정할 수 있습니다.
+schema나 최종 Markdown 형식을 바꾸려면 guard와 계약 테스트도 함께 갱신해야 합니다.

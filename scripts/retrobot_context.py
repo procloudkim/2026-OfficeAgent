@@ -11,7 +11,8 @@ from typing import BinaryIO
 
 MAX_SOURCE_BYTES = 256 * 1024
 MAX_SECTION_BYTES = 8 * 1024
-_DATED_H2 = re.compile(r"^## \d{4}-\d{2}-\d{2} — \S")
+_H2 = re.compile(r"^ {0,3}##(?:[ \t]+|$)")
+_DATED_H2 = re.compile(r"^ {0,3}##[ \t]+\d{4}-\d{2}-\d{2} — \S")
 
 
 class RetrobotContextError(RuntimeError):
@@ -45,7 +46,7 @@ def _extract_latest_worklog_section(lines: Iterable[bytes]) -> bytes:
         ):
             raise RetrobotContextError("Worklog contains unsafe control characters")
 
-        is_h2 = line.startswith("## ")
+        is_h2 = _H2.match(line) is not None
         if is_h2 and _DATED_H2.match(line):
             candidate = bytearray(raw_line)
             capturing = True

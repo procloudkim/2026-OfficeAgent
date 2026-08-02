@@ -66,7 +66,8 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `scripts/live_smoke.py` | out-of-repo cwd·local disposable DB·HTTP/Codex G7 live runner |
 | `scripts/live_smoke_contract.py` | citation/cache/update/version receipt의 순수 offline validator |
 | `scripts/retrobot_context.py` | committed WORKLOG에서 최신 날짜 H2 하나만 추출하는 8 KiB parser |
-| `scripts/retrobot_guard.py` | preflight prompt·exact child-env·timeout·generated Markdown fail-closed guard |
+| `scripts/retrobot_guard.py` | preflight prompt·exact child-env·timeout·structured JSON 검증·canonical Markdown renderer |
+| `scripts/retrobot_publish.py` | no-clobber 설치·owned index 교체·guarded timeline append primitive |
 
 ## D. 자동화 테스트
 
@@ -83,6 +84,8 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `tests/test_retrobot_hook.py` | hook 입력 metadata·timeline cell·explicit stage/commit 구조 계약 |
 | `tests/test_retrobot_context.py` | 최신 날짜 H2 선택·후속 H2 차단·8 KiB 경계 계약 |
 | `tests/test_retrobot_guard.py` | child env·timeout·UTF-8/size/heading·민감 출력 거부 계약 |
+| `tests/test_retrobot_publish.py` | fd-origin ownership·공개 파일 보존·guarded append 단위 계약 |
+| `tests/test_retrobot_runtime.py` | DrvFS mode·early index/HEAD lock·branch pin·사용자 staging/flag 보존·recovery journal 자동 commit 통합 계약 |
 | `tests/test_sqlite_store.py` | version/cache/FK integrity |
 | `tests/test_chroma_store.py` | replace/search cosine behavior |
 | `tests/test_parsers_and_chunking.py` | formats, offsets, stable chunks |

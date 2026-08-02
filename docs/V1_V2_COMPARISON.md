@@ -5,7 +5,7 @@
 | 문서 상태 | `PARTIAL` |
 | V1 rollback | final HEAD `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | V2 committed baseline | product `67a592be6e10dc5434025073c7a7af1a0e26c027`, Retrobot `5ae7ccacf8b383ecf51360423697cc931b3853a3` |
-| V2 현재 관측 | dirty-worktree Docker `134 passed in 9.25s`; host `116 passed, 18 expected skips in 24.33s`; readiness-only HTTP 200 |
+| V2 현재 관측 | 2026-08-03 dirty-worktree Docker `167 passed, 6 expected skips in 9.27s`; host `155 passed, 18 expected skips in 57.23s`; readiness-only HTTP 200 |
 | G8 merge recommendation | `NO` — final-SHA·clean checkout·actual Codex/SSE·remote parity pending |
 
 이 문서는 성능 benchmark가 아니라 사실과 실패 경계를 비교합니다. 측정하지
@@ -19,7 +19,7 @@
 | V1 | implementation `bd08426`에서 27 tests PASS; final `29a429f`는 후속 Retrobot Markdown commit | V1 offline rollback 기준선 |
 | V1 live | ancestor `e838cc7`에서 actual Codex App Server·Uvicorn SSE 17 deltas | 역사적 live 증거이며 V2 freshness 증거가 아님 |
 | V2 committed | `5ae7cca` exact archive에서 Docker suite `48 passed in 7.39s` | committed PostgreSQL/pgvector baseline의 역사적 영수증 |
-| V2 worktree | Docker `134 passed in 9.25s`; host `116 passed, 18 expected skips in 24.33s`; readiness-only HTTP 200 | disposable-DB/G7 계약을 포함하지만 final-SHA 및 actual-Codex receipt가 아님 |
+| V2 worktree | Docker `167 passed, 6 expected skips in 9.27s`; host `155 passed, 18 expected skips in 57.23s`; readiness-only HTTP 200 | disposable-DB/G7 계약을 포함하지만 final-SHA 및 actual-Codex receipt가 아님 |
 | V2 final | 커밋된 최종 SHA의 clean run, actual Codex/SSE, 원격 parity가 없음 | 전체 상태는 `PARTIAL` |
 
 상세 V1 영수증은 [V1 Traceability](REQUIREMENTS_TRACEABILITY.md), V2 gate는
@@ -41,7 +41,7 @@
 
 V2 committed baseline에서 실제 PostgreSQL/pgvector, migration, parser,
 transaction, retrieval, cache invalidation은 48-test exact-archive suite로 관측됐습니다.
-현재 worktree의 readiness·격리·disposable-DB/G7 계약을 포함한 127-test Docker
+현재 worktree의 readiness·격리·disposable-DB/G7 계약을 포함한 167-test Docker
 PASS를 관측했습니다. 하지만 결과는 커밋에 고정되지 않았고 actual Codex를
 호출하지 않아 V2 final 수용 증거로 승격하지 않습니다.
 

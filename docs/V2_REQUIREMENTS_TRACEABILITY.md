@@ -8,7 +8,7 @@
 | 역사적 구현 기준선 | 제품 `67a592be6e10dc5434025073c7a7af1a0e26c027`, Retrobot `5ae7ccacf8b383ecf51360423697cc931b3853a3` |
 | 역사적 Git 관측 | 2026-08-02 local HEAD = tracking ref = live remote `5ae7cca` |
 | 역사적 runtime 영수증 | 2026-07-31 V2 `5ae7cca` exact archive에서 `docker compose run --build --rm test` → `48 passed in 7.39s`; 직접 관측했지만 receipt registry에는 미등록 |
-| 현재 worktree 관측 | 2026-08-02 Docker `134 passed in 9.25s`; host `116 passed, 18 expected skips in 24.33s`; readiness-only HTTP 200; final-SHA receipt는 아님 |
+| 현재 worktree 관측 | 2026-08-03 Docker `167 passed, 6 expected skips in 9.27s`; host `155 passed, 18 expected skips in 57.23s`; readiness-only HTTP 200; final-SHA receipt는 아님 |
 | 미충족 | 최종 변경 SHA의 공식 Docker suite·real-DB readiness, clean checkout, actual Codex/SSE, 최종 `SUB-01` push parity |
 
 V2의 committed baseline과 exact-archive Docker 영수증은 존재합니다. 최신
@@ -102,7 +102,7 @@ Test runner는 고유 이름의 임시 database를 생성하고 migration을 적
 | `DQ-01` 실행 불가 | `PARTIAL` | clean checkout 제품 실행과 README 절차 |
 | `DQ-02` hardcode/LLM 없음 | `PARTIAL` | current-SHA actual Codex/SSE |
 | `DQ-03` vector/cache DB 없음 | `PARTIAL` | committed 구현·과거 real-DB test, 최종 SHA 재실행 필요 |
-| `DQ-04` 자동화 테스트 전무 | `PARTIAL` | dirty worktree Docker 127 PASS와 역사적 exact-archive suite는 존재; 최종 SHA DB 재실행을 분리 |
+| `DQ-04` 자동화 테스트 전무 | `PARTIAL` | dirty worktree Docker 167 PASS와 역사적 exact-archive suite는 존재; 최종 SHA DB 재실행을 분리 |
 | `DQ-05` OSS 통째 복사 | `PARTIAL` | V1 증분 history와 dependency provenance 최종 감사 |
 | `DQ-06` 허위 문서 | `PARTIAL` | current-SHA 문서/code/test parity 재검증 |
 | `DQ-07` 평가 창 밖 구현 | `VERIFIED` | 기존 V2 meaningful artifact와 push가 평가 창 안에 존재; 최종 push는 `SUB-01`로 분리 |

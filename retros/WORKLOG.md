@@ -390,16 +390,20 @@
   commit 시각, aggregate shortstat만 전송한다. child env는 neutral HOME과 실제 auth용 `CODEX_HOME`, credential-free
   proxy·certificate 경로만 허용하고 user config/rules와 shell tool을 끈다.
 - Codex 실행 전 prompt의 환경 민감 값·identity·credential URI를 검사한다. 실행은
-  300초로 제한하고 생성물은 publish 전에 64 KiB, UTF-8, heading 순서, commit SHA와
-  active Markdown·HTML·URL·이메일·credential 패턴을 fail-closed로 검사한다. 실패하면
-  temp/output/timeline stage를 남기지 않는다.
+  300초로 제한한다. 모델은 schema로 제한된 일곱 필드 JSON만 반환하고 guard가
+  중복·누락·타입·길이·민감 값을 재검사한 뒤 SHA·시각·heading이 고정된 Markdown을
+  로컬 렌더링한다. 실패하면 소유한 temp만 정리하고 사용자 경로는 덮어쓰지 않는다.
 
 ### 검증
 
 - WSL2 Docker client/server, Compose와 `hello-world`를 확인했다.
-- current worktree의 Docker suite → `134 passed in 9.25s`.
-- current worktree의 host suite → `116 passed, 18 expected skips in 24.33s`.
-- Retrobot context·hook·guard 집중 suite → `48 passed`.
+- 2026-08-03 current worktree의 Docker suite →
+  `167 passed, 6 expected skips in 9.27s`. 6건은 격리 image에 의도적으로 없는
+  Git·flock을 요구하는 host 전용 Retrobot runtime test다.
+- 2026-08-03 current worktree의 host suite →
+  `155 passed, 18 expected skips in 57.23s`.
+- Retrobot context·hook·guard·publisher·runtime 집중 suite →
+  `87 passed in 30.53s`.
 - Ruff, `uv lock --check`, Compose config, hook syntax와 diff check를 통과했다.
 - Codex를 호출하지 않는 readiness-only smoke의 실제 Uvicorn `/health/ready`는
   HTTP `200`, `ready`, migration head `0001`, pgvector `0.8.6`을 반환했고 종료 뒤
@@ -407,10 +411,18 @@
 - 최종 감사 runner는 ignored `.env`를 배제하고 local database target만 allowlist하며,
   Codex workspace basename을 고정하고 disposable root containment를 검증한다.
 - Retrobot은 commit blob의 skill과 WORKLOG에서 최신 날짜 H2 하나만 추출한다. 다음
-  임의 H2에서 멈추고 8,192/8,193-byte 경계를 검사하며, Git-dir lock·HEAD/index/path
-  preimage·게시 전 hash·conditional ref update로 동시 실행과 stale-parent commit을
-  fail-closed 처리한다. 이 경계는 provider-side privacy나 repository의 OS-level
-  read isolation을 증명하지 않는다.
+  임의 H2에서 멈추고 8,192/8,193-byte 경계를 검사한다. helper는 blob을 quoted
+  `python -c` 인자로 직접 실행한다. blocking Git-directory flock과 표준
+  `index.lock`·`HEAD.lock`을 Codex 호출 전에 bounded retry로 획득한다. commit tree와
+  final user index를 분리하고, lock 뒤 current shared index에서 final을 만들어
+  unrelated flags·intent-to-add를 보존한다. 두 관리 경로의 staged blob이나
+  `assume-unchanged`/`skip-worktree` flag는 clean preimage가 아니므로 Codex 호출 전에
+  중단한다. no-clobber 회고 설치, fd-origin ownership과
+  guarded timeline suffix append를 사용하며 실패 후 공개 파일과 inode는 자동
+  삭제하지 않고 Git 내부 recovery journal에 남긴다. DrvFS의 non-atomic rename fallback은
+  사용하지 않으며 Git dir/worktree가 다른 filesystem이면 fail-closed한다. 이
+  경계는 provider-side privacy나 repository의 OS-level read isolation을 증명하지
+  않는다.
 - fresh-run 귀속용 64-hex instance nonce는 설정된 감사 실행에서만 readiness에
   echo하며, 기본 3필드 응답과 readiness-only receipt는 그대로 유지한다.
 
@@ -418,9 +430,9 @@
 
 - 실제 Codex HTTP/SSE live smoke의 sample fixture context 외부 전송은 승인됐으며,
   final current-SHA 실행 전까지 live `VERIFIED`를 주장하지 않는다.
-- 제품 commit `873e155`와 보완 commit `2111b2e`의 Retrobot 호출은 출력 계약을
-  통과하지 못해 회고를 publish하지 않았다. guard는 고정된 거절 사유만 출력하도록
-  보강했다. `d3dbd0e` 실행에서 필수 직접 보완 comment와 HTML 금지 지시의 모순이
-  원인임을 확인해 해당 marker 하나만 예외로 명시한다. 인증에는 실제 `CODEX_HOME`
-  접근이 필요하며 auth 자체의 provider/CLI 경계는 이 로컬 guard가 증명하지 않는다.
+- `873e155`, `2111b2e`, `d3dbd0e`, `1a8d090`의 Retrobot 호출은 각각 기존
+  Markdown 출력 계약을 통과하지 못해 회고를 publish하지 않았다. comment 예외를
+  보완한 뒤에도 모델 heading 편차가 남아, 모델은 구조화 값만 만들고 형식은 로컬
+  코드가 소유하도록 전환했다. 인증에는 실제 `CODEX_HOME` 접근이 필요하며 auth
+  자체의 provider/CLI 경계는 이 로컬 guard가 증명하지 않는다.
 - clean checkout, remote parity와 final recorder/audit은 최종 commit 뒤 실행한다.

@@ -72,12 +72,19 @@ symlink 지원 여부는 별도로 확인해야 합니다.
    shortstat와 `retros/WORKLOG.md`의 최신 날짜 H2 하나로 제한됩니다. 이전 로그·commit 제목·
    파일명·작성자·diff와 전역 `~/.codex`·`~/.claude` log는 전달하지 않습니다.
    read-only는 repository read-isolation 보장이 아닙니다.
-4. Git-dir lock과 HEAD/index/path preimage를 재검사한 뒤 성공한 Markdown과
-   `retros/TIMELINE.md` 두 path만
-   `docs(retro): 자동 회고 생성 by Retrobot` 제목으로 자동 commit합니다.
-5. hook은 그 정확한 자동 제목, `RETROBOT_SKIP=1`, skill/CLI 부재 또는 생성
+4. 모델의 일곱 필드 JSON을 guard가 재검사하고 canonical Markdown으로 로컬
+   렌더링합니다. 이는 제품 답변의 plain-text delta/SSE 계약과 별개입니다.
+5. Git directory read-only lock과 branch/HEAD/index/path preimage를 재검사합니다.
+   표준 `index.lock`·`HEAD.lock`을 Codex 호출 전에 bounded retry로 획득하고
+   committed helper, tree/final private index, no-clobber copy와 guarded timeline
+   append를 사용해 Markdown과
+   `retros/TIMELINE.md` 두 path만 `docs(retro): 자동 회고 생성 by Retrobot`
+   제목으로 자동 commit합니다. ownership inode는 Git 내부 recovery journal에
+   보존하며 실패 경로에서 공개 파일을 자동 삭제하지 않습니다. 두 관리 경로가
+   stage됐거나 special index flag를 가지면 사용자 index를 바꾸지 않고 중단합니다.
+6. hook은 그 정확한 자동 제목, `RETROBOT_SKIP=1`, skill/CLI 부재 또는 생성
    실패에서 종료합니다. Claude fallback과 별도 수동 실행은 없습니다.
-6. hook은 push하지 않습니다. 사용자가 제품 commit과 자동 회고 commit을
+7. hook은 push하지 않습니다. 사용자가 제품 commit과 자동 회고 commit을
    원격에 push해야 evaluator가 볼 수 있습니다.
 
 정본은 `.githooks/post-commit`, `retrobot/SKILL.md`, `retrobot/README.md`입니다.
