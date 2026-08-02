@@ -12,3 +12,4 @@
 | 2026-07-30_141842 | [2026-07-30_141842_retro.md](./2026-07-30_141842_retro.md) | docs(v2): define postgres pgvector phase 2 |
 | 2026-07-30_151706 | [2026-07-30_151706_retro.md](./2026-07-30_151706_retro.md) | feat(v2): add postgres pgvector migration foundation |
 | 2026-07-30_230751 | [2026-07-30_230751_retro.md](./2026-07-30_230751_retro.md) | feat(v2): enforce p0 cache and prompt contracts |
+| 2026-08-03_020526 | [2026-08-03_020526_01ffc149aa915937c536872d0e1794cbba1a84b7_retro.md](./2026-08-03_020526_01ffc149aa915937c536872d0e1794cbba1a84b7_retro.md) | 01ffc149aa915937c536872d0e1794cbba1a84b7 |
