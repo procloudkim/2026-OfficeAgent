@@ -2,18 +2,21 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 상태 | `VERIFIED` — 최신 G8 final-audit bundle `PASS` |
+| 문서 상태 | `VERIFIED` — 최신 current-SHA evidence bundle `PASS` |
 | 대상 브랜치 | `feat/v2-postgres-pgvector-compose` |
 | V1 rollback | `29a429f16616ff63dd6ef175b870ec042be10e71` |
-| 최초 G8 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
+| 최초 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
 | 제출 결론 | V2 branch 제출 `YES`; `main` merge는 수행하지 않음 |
 | 정직한 잔여 | `REQ-09` structured output, `PROC-04` worked-day push completeness는 `PARTIAL` |
 
-V1의 과거 test/live smoke나 이전 V2 실행을 현재 증거로 재사용하지 않았습니다.
-제출 HEAD가 바뀔 때마다 아래 여덟 profile을 같은 SHA에서 다시 실행하고, G8은 그
-완전한 bundle만 수용합니다.
+이 문서가 현재 제출 상태의 정본입니다. `retros/`는 생성 시점의 append-only
+이력이며, 그 안의 후속 검증 제안은 이후 current-SHA 영수증과 충돌하지 않습니다.
 
-최초 G8 기준선은 위 full SHA로 고정했습니다. 이후 handoff commit은 평가자 문서와
+V1의 과거 test/live smoke나 이전 V2 실행을 현재 증거로 재사용하지 않았습니다.
+제출 HEAD가 바뀔 때마다 아래 여덟 profile을 같은 SHA에서 다시 실행하고 완전한
+bundle만 수용합니다.
+
+최초 기준선은 위 full SHA로 고정했습니다. 이후 handoff commit은 평가자 문서와
 Retrobot 산출물만 바꾸며, 최종 SHA는 Git `HEAD`와 live remote가 소유합니다. 아래
 profile 결과는 그 최종 HEAD에서 재발급하고 문서에 변동 SHA를 중복 복사하지 않습니다.
 
@@ -132,21 +135,16 @@ runtime test입니다. 필수 `TEST-01`~`TEST-03` node는 collect-only로 `3/3` 
 | `PROC-05` 회고 내용 | `VERIFIED` | bounded latest WORKLOG H2와 자동 KPT artifact |
 | `SUB-01` private final push | `VERIFIED` | local/tracking/live remote exact parity, clean, ahead/behind `0/0` |
 
-## 7. Gate ledger
+## 7. 상태 namespace
 
-| Gate | 상태 | 핵심 증거 |
+| Namespace | 현재 판정 | 의미·정본 |
 |---|---|---|
-| `G1` | `PASS` | branch, 설계 baseline, remote parity |
-| `G2` | `PASS` | pinned DB image, migration, Compose |
-| `G3` | `PASS` | transaction, rollback, concurrency, revision race |
-| `G4` | `PASS` | 공식 `TEST-01`~`TEST-03` |
-| `G5` | `PASS` | RAG, cache, SSE, Retrobot runtime |
-| `G6` | `PASS` | readiness, 격리, 문서 parity |
-| `G7` | `PASS` | clean launch, disposable DB, actual Codex/SSE |
-| `G8` | `PASS` | 여덟 current-SHA profile과 DQ·remote audit |
+| `SOURCE-EVIDENCE` | 8-profile bundle `PASS` | 이 문서가 소유하는 current-SHA 제출 증거; 계약 gate가 아님 |
+| `OFFICIAL-RULES` | 제출 준비 `PASS` | 과제 원문 rule scorecard; CI workflow를 필수로 요구하지 않음 |
+| `INTERNAL-V2` | CI gate와 후속 gate `FAIL` | 자체 강화 계약; 필수 PR CI가 `PLANNED` |
 
-G8 `PASS`는 제출 가능한 evidence bundle을 뜻하며 모든 scoring/process 항목 만점을
-뜻하지 않습니다. `REQ-09`와 `PROC-04`를 과대 승격하지 않습니다.
+따라서 공식 제출 준비 `PASS`와 자체 내부 계약 `FAIL`은 모순이 아닙니다.
+`REQ-09`와 `PROC-04`는 두 판정과 별개로 `PARTIAL`을 유지합니다.
 
 ## 8. 승격 금지선
 

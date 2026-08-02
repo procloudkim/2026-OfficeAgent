@@ -3,6 +3,7 @@
 import re
 from pathlib import Path
 
+from scripts.retrobot_context import extract_latest_worklog_section
 from scripts.retrobot_guard import MAX_PROMPT_BYTES, validate_retrobot_prompt
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -114,12 +115,13 @@ def test_retrobot_complete_bound_prompt_inputs_are_identity_free() -> None:
         "committed_at=2026-08-02T00:00:00+09:00\n"
         "aggregate_shortstat=2 files changed, 10 insertions(+), 3 deletions(-)"
     )
-    latest_worklog = "## " + WORKLOG.rsplit("\n## ", maxsplit=1)[1]
+    latest_worklog = extract_latest_worklog_section(WORKLOG.encode()).decode()
     bound_prompt = "\n\n".join((SKILL, identity_free_commit_metadata, latest_worklog))
 
     assert len(bound_prompt.encode()) <= MAX_PROMPT_BYTES
     assert "## 2026-07-28" not in latest_worklog
-    assert "167 passed" in latest_worklog
+    assert latest_worklog.startswith("## 2026-")
+    assert "\n## " not in latest_worklog
     _assert_identity_free(bound_prompt)
     validate_retrobot_prompt(bound_prompt.encode())
 

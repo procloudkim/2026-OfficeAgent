@@ -475,3 +475,30 @@
   평가자 문서는 같은 current-SHA 갱신 주기를 가져야 한다.
 - scoring/process의 정직한 `PARTIAL`을 불합격처럼 확대하지 않으면서도 명시적으로
   공개하는 것이 제출 완성도와 증거 신뢰도를 함께 높인다.
+
+## 2026-08-03 — 평가 상태 namespace와 Retrobot 독립 검증
+
+### Why
+
+- 최종 독립 감사에서 제출 source의 숫자형 gate와 별도 내부 계약 gate가 같은
+  ID처럼 읽혔고, 생성 시점 회고의 후속 제안이 최신 상태처럼 해석됐다.
+- Retrobot 구현은 검증됐지만 평가 입력이 설명 문서에 치우쳐 실제 hook, guard,
+  회귀와 Git object를 한 번에 확인하기 어려웠다.
+
+### What
+
+- V2 Traceability를 현재 상태의 단일 정본으로 두고 `SOURCE-EVIDENCE`,
+  `OFFICIAL-RULES`, `INTERNAL-V2`를 분리했다.
+- 현재 문서의 숫자형 gate ledger를 제거하고, README와 Architecture의 중복된 실행
+  결과는 Traceability 링크로 축약했다. 과거 Retrobot 회고 본문은 수정하지 않았다.
+- Retrobot 문서에 활성 hook, 집중 회귀, 최신 commit의 부모와 두-path diff를 직접
+  확인하는 네 명령을 추가했다.
+
+### 검증과 종료 조건
+
+- Retrobot context·guard·hook·publisher·runtime 집중 suite `87 passed`, Ruff와
+  diff check를 통과했다.
+- ignored evaluator 임시 파일은 Git index와 제출 history에 포함되지 않았고 감사
+  종료 뒤 제거했다.
+- 문서 commit 뒤 자동 Retrobot commit을 분리하고, 새 최종 HEAD에서 current-SHA
+  profile, snapshot, validator와 non-force remote parity를 다시 확인해야 종료한다.

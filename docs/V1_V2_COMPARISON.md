@@ -4,8 +4,8 @@
 |---|---|
 | 문서 상태 | `VERIFIED` |
 | V1 rollback | `29a429f16616ff63dd6ef175b870ec042be10e71` |
-| 최초 V2 G8 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
-| G8 제출 권고 | `YES` — V2 branch 제출 가능; `main` merge는 별도 승인 전 수행하지 않음 |
+| 최초 V2 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
+| 제출 권고 | `YES` — V2 branch 제출 가능; `main` merge는 별도 승인 전 수행하지 않음 |
 
 이 문서는 성능 benchmark가 아니라 사실과 실패 경계를 비교합니다. 측정하지 않은
 속도, 비용, 가용성이나 복구 우위는 주장하지 않습니다. 요구사항별 최신 상태는
@@ -18,7 +18,7 @@
 | V1 | implementation `bd08426`에서 27 tests PASS; final `29a429f`는 후속 Retrobot Markdown commit | `HISTORIC` rollback 기준선 |
 | V1 live | ancestor `e838cc7`에서 actual Codex/Uvicorn SSE 17 deltas | `HISTORIC`; V2 freshness로 재사용하지 않음 |
 | V2 초기 | `5ae7cca` exact archive에서 Docker 48 tests PASS | `HISTORIC` external observation; current evidence로 재사용하지 않음 |
-| V2 G8 | current-SHA 8-profile bundle: Docker `167 passed, 6 skipped`, clean launch, readiness, actual Codex/SSE, 문서·출처·Retrobot, remote parity | 제출 evidence `VERIFIED` |
+| V2 source evidence | current-SHA 8-profile bundle: Docker `167 passed, 6 skipped`, clean launch, readiness, actual Codex/SSE, 문서·출처·Retrobot, remote parity | 제출 evidence `VERIFIED` |
 
 ## 2. 구조와 운영 비교
 
@@ -49,7 +49,7 @@ delta, exact replay, document update 뒤 miss와 versioned citation을 확인했
 - answer-level entailment verifier, 동일 miss single-flight, HA/PITR
 - 별도 WSL Docker Engine과 `linux/amd64` 이외 architecture는 `UNKNOWN`
 
-## 4. G8 판정
+## 4. 제출 판정
 
 V2 branch 제출 recommendation은 `YES`입니다. 이는 일곱 불합격 사유가 발동하지
 않고 실행·테스트·문서·출처·remote evidence가 제출 가능한 상태라는 뜻입니다.

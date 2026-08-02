@@ -5,11 +5,9 @@ FastAPI 문서 Q&A 서버입니다. 근거가 없으면 답변하지 않으며, 
 App Server 응답을 SSE로 전달하고 문서명·버전·청크 위치를 출처로 함께 반환합니다.
 동일·유사 질문 cache와 문서 변경 시 cache 무효화를 지원합니다.
 
-> 최신 제출 영수증에서 V2의 G8 final-audit bundle은 `PASS`입니다. Docker,
-> real readiness, detached clean launch, actual Codex/Uvicorn SSE, 문서·출처·
-> Retrobot과 remote parity를 함께 확인했습니다. `REQ-09` structured output과
-> `PROC-04` worked-day push completeness만 `PARTIAL`로 남으며, 상세 상태는
+> 최신 실행 결과, 공식 과제 판정, 별도 내부 계약과 정직한 잔여 상태는
 > [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)가 소유합니다.
+> `retros/`는 생성 시점의 사실을 보존하는 이력이며 현재 상태 정본이 아닙니다.
 
 ## 구현 출처
 
@@ -53,7 +51,8 @@ WORKLOG의 최신 날짜 H2 하나만 외부 Codex에 보냅니다. 이전 로�
 파일명·작성자·diff는 전송하지 않으며 prompt 전체는 16 KiB, 로그 구간은 8 KiB로
 제한합니다. 환경
 allowlist, 빈 cwd, read-only sandbox, shell 비활성화, timeout과 출력 검증을
-fail-closed로 적용합니다. 인증에는 실제 `CODEX_HOME`만 사용합니다.
+fail-closed로 적용합니다. 인증에는 실제 `CODEX_HOME`만 사용합니다. 구현·회귀와
+Git object 검증 명령은 [Retrobot 문서](./retrobot/README.md)에 있습니다.
 
 이후 제품은 다음 한 줄로 실행합니다.
 
@@ -199,7 +198,7 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 | `tests/test_migrations.py` | empty DB, 재실행, checksum/history fail-closed, rollback, advisory lock |
 | `tests/test_test_container_isolation.py` | Node/Codex/API key/token/.codex 부재와 disposable effective libpq database target |
 | `tests/test_prompts.py` | JSON round-trip, question/evidence/metadata delimiter breakout, version SSOT |
-| `tests/test_live_smoke.py` | disposable local DB, G7 citation/cache/update 전이, sanitized receipt의 offline 계약 |
+| `tests/test_live_smoke.py` | disposable local DB, live citation/cache/update 전이, sanitized receipt의 offline 계약 |
 | 기존 V1 adapter tests | SQLite/Chroma 기준선 회귀; V2 제품 증거와 구분 |
 
 host의 빠른 unit/legacy 회귀는 DB test를 skip합니다.
@@ -237,15 +236,11 @@ DB port는 기본 `127.0.0.1:15432`에만 공개됩니다. migration 상태 검�
 docker compose run --rm migrate officeagent-migrate --check
 ```
 
-## 최종 검증 결과와 비목표
+## 최신 상태와 비목표
 
-- 공식 Docker suite: `167 passed, 6 skipped`; 필수 경로 `3/3`
-- detached clean launch와 실제 readiness: HTTP `200`, migration `0001`,
-  pgvector `0.8.6`
-- 실제 Codex/Uvicorn SSE: `miss → exact hit → document update → miss`, 두 miss의
-  복수 delta와 versioned citation `PASS`
-- `REQ-09` structured output은 미구현, `PROC-04`의 모든 worked-day 당일 push
-  이력은 불완전해 각각 `PARTIAL`
+current-SHA 실행 결과와 요구사항별 판정은
+[V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)에서 한 번만 관리합니다.
+
 - structured timing log와 CI workflow는 이번 제출의 `PLANNED` 비목표
 - 이미지 PDF OCR, 문서 삭제 API, 사용자별 corpus, HA/PITR
 - 동일 질문 cache miss single-flight와 answer-level entailment verifier

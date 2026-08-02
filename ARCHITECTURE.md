@@ -1,9 +1,8 @@
 # Architecture
 
-> 최신 제출 영수증에서 V2의 G8 current-SHA bundle은 `PASS`입니다. 요구사항별
-> 상태는 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)가 소유하며,
-> `REQ-09` structured output과 `PROC-04` worked-day push completeness만
-> `PARTIAL`입니다. V1의 역사적 runtime 증거를 V2 완료 증거로 재사용하지 않습니다.
+> current-SHA 결과와 요구사항별 상태는
+> [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)가 소유합니다.
+> V1의 역사적 runtime 증거는 V2 완료 증거로 재사용하지 않습니다.
 
 ## 1. Why–What–How
 
@@ -141,7 +140,7 @@ proxy 환경을 상속하지 않습니다.
 
 첫 delta 전 transport/timeout만 한 번 재시도하고 delta 이후에는 중복 답변과
 이중 사용량을 피하기 위해 재시도하지 않습니다. cache hit의 80자 replay는
-`cache_hit=true`로 live delta와 구분합니다. G7 harness는 citation 및
+`cache_hit=true`로 live delta와 구분합니다. live smoke harness는 citation 및
 `miss → exact hit → 문서 update → miss`를 한 runtime에서 검증하고, 두 miss에
 복수의 실제 delta를 요구합니다. receipt는 정규화된 Codex CLI version과
 sanitized citation metadata만 남기고 답변·cwd·DB conninfo를 제외합니다.

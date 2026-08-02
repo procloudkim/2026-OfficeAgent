@@ -48,6 +48,19 @@ git config core.hooksPath .githooks
 현재 지원되는 자동 실행 경로는 `.githooks/post-commit`의 `codex exec`뿐입니다.
 별도 수동 실행이나 Claude fallback은 이 리포지토리에서 제공하지 않습니다.
 
+## 독립 검증
+
+아래 명령은 활성 hook, fail-closed 회귀, 최신 자동 회고 commit의 부모와 변경
+경계를 각각 확인합니다. 마지막 두 명령에서 최신 commit은 직전 제품 commit을
+부모로 갖고 `retros/TIMELINE.md`와 새 회고 파일만 변경해야 합니다.
+
+```bash
+git config --get core.hooksPath
+uv run pytest tests/test_retrobot_*.py
+git show --no-patch --format='%H%n%P%n%s' HEAD
+git diff-tree --no-commit-id --name-status -r HEAD
+```
+
 ## 출력 구조
 
 ```
