@@ -1,7 +1,8 @@
 # ADR-0002: 저장소, 검색, 캐시
 
-> V1 SQLite/Chroma rollback 기준선입니다. V2 PostgreSQL/pgvector overlay와 승격
-> 조건은 [ADR-0004](./ADR-0004-postgresql-pgvector-storage.md)가 소유합니다.
+> V1 SQLite/Chroma rollback 기준선입니다. 검증된 V2 PostgreSQL/pgvector overlay와
+> P0-08 decision lifecycle은 [ADR-0004](./ADR-0004-postgresql-pgvector-storage.md)가
+> 소유합니다.
 
 | 항목 | 내용 |
 |---|---|

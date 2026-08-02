@@ -9,9 +9,11 @@ canonical source는
 [`src/officeagent/application/prompts.py`](./src/officeagent/application/prompts.py)이며
 `PROMPT_TEMPLATE_VERSION = "grounded-json-v2"`도 그 파일에만 선언합니다.
 
-JSON envelope와 delimiter breakout 경계의 구현·검증 상태는 `PARTIAL`입니다.
-변동 SHA, remote parity와 runtime 영수증은
-[V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)만 소유합니다.
+JSON envelope, version SSOT와 delimiter breakout 경계는 current-SHA code/test로
+`VERIFIED`입니다. timeout/retry는 자동화로, 정상 Codex/SSE 경로는 live smoke로
+확인했습니다. Structured LLM output은 의도적으로 구현하지 않아 `REQ-09` 전체
+평가는 `PARTIAL`입니다.
+상세 영수증은 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)가 소유합니다.
 
 ## Why–What–How
 

@@ -5,13 +5,15 @@ FastAPI 문서 Q&A 서버입니다. 근거가 없으면 답변하지 않으며, 
 App Server 응답을 SSE로 전달하고 문서명·버전·청크 위치를 출처로 함께 반환합니다.
 동일·유사 질문 cache와 문서 변경 시 cache 무효화를 지원합니다.
 
-> V2의 구현·검증 상태는 `PARTIAL`입니다. 변동 SHA, remote parity, runtime 영수증과
-> 남은 gate는 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)만 정본으로
-> 관리합니다.
+> 최신 제출 영수증에서 V2의 G8 final-audit bundle은 `PASS`입니다. Docker,
+> real readiness, detached clean launch, actual Codex/Uvicorn SSE, 문서·출처·
+> Retrobot과 remote parity를 함께 확인했습니다. `REQ-09` structured output과
+> `PROC-04` worked-day push completeness만 `PARTIAL`로 남으며, 상세 상태는
+> [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)가 소유합니다.
 
 ## 구현 출처
 
-지원자 확인: 제공된 템플릿 8ca57661f7a9b54e8bac2ed8957e5c3dacc77502에서 증분 구현했으며, 기존 오픈소스 프로젝트를 통째로 복사하지 않았고 제3자 의존성은 pyproject.toml과 uv.lock에 선언했습니다.
+지원자 확인: 제공된 템플릿 8ca57661f7a9b54e8bac2ed8957e5c3dacc77502에서 증분 구현했으며, 기존 오픈소스 프로젝트를 통째로 복사하지 않았습니다. Python 제3자 패키지는 pyproject.toml과 uv.lock에 선언하고, Codex CLI와 PostgreSQL/pgvector image는 README와 compose.yaml에 고정했습니다.
 
 ## 평가자용 구독 없는 한 줄 테스트
 
@@ -69,7 +71,8 @@ bind합니다. 다른 host에 공개해야 할 때만 `OFFICEAGENT_API_HOST`를,
 `http://127.0.0.1:8000`, OpenAPI 문서는 `/docs`입니다.
 최초 실행에는 FastEmbed 모델 다운로드가 필요합니다.
 
-실제 구독을 사용하는 current-SHA smoke는 최종 gate에서 별도로 실행합니다.
+최신 final audit은 실제 구독을 사용하는 current-SHA smoke도 통과했습니다. 아래
+명령은 같은 경계를 재현합니다.
 
 ```bash
 uv run python -m scripts.live_smoke
@@ -234,10 +237,15 @@ DB port는 기본 `127.0.0.1:15432`에만 공개됩니다. migration 상태 검�
 docker compose run --rm migrate officeagent-migrate --check
 ```
 
-## 남은 검증과 비목표
+## 최종 검증 결과와 비목표
 
-- 최종 변경 SHA의 공식 Docker suite, clean checkout과 실제 Codex incremental SSE
-- 최종 변경 SHA의 `/health/ready` 실제 DB/migration/vector 검증
+- 공식 Docker suite: `167 passed, 6 skipped`; 필수 경로 `3/3`
+- detached clean launch와 실제 readiness: HTTP `200`, migration `0001`,
+  pgvector `0.8.6`
+- 실제 Codex/Uvicorn SSE: `miss → exact hit → document update → miss`, 두 miss의
+  복수 delta와 versioned citation `PASS`
+- `REQ-09` structured output은 미구현, `PROC-04`의 모든 worked-day 당일 push
+  이력은 불완전해 각각 `PARTIAL`
 - structured timing log와 CI workflow는 이번 제출의 `PLANNED` 비목표
 - 이미지 PDF OCR, 문서 삭제 API, 사용자별 corpus, HA/PITR
 - 동일 질문 cache miss single-flight와 answer-level entailment verifier

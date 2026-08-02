@@ -2,7 +2,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| Status | `PROPOSED` — 구현 evidence는 `PARTIAL`; 변동 상태는 [V2 Traceability](../V2_REQUIREMENTS_TRACEABILITY.md)가 소유 |
+| Status | `main` supersession은 `PROPOSED` (P0-08); V2 branch 구현 evidence는 `VERIFIED` |
 | Date | 2026-07-30 |
 | Baseline | V1 `main` rollback baseline; exact locator는 [V2 Traceability](../V2_REQUIREMENTS_TRACEABILITY.md)가 소유 |
 | Target | PostgreSQL 17.10 + pgvector 0.8.6 |
@@ -27,10 +27,10 @@ V2는 PostgreSQL 17.10과 pgvector 0.8.6을 유일한 영속 계층으로 사용
 unit-of-work port로 교체한다.
 
 G2의 Compose/schema/migration 위에 G3 `CorpusStore`, API composition과 P0
-offline path를 구현했다. 현재 검증 상태는 V2 Traceability에서만 판정한다.
-아래 수용 테스트와 current-SHA evidence가 모두 생길 때만 Status를
-`Accepted — VERIFIED`로 전환하고 ADR-0002를 `SUPERSEDED by ADR-0004`로
-표시한다. 그전까지 ADR-0002는 V1 제품 정본이다.
+offline path를 구현했습니다. 아래 수용 테스트와 current-SHA evidence는 모두
+충족됐지만 P0-08 계약에 따라 `main` supersession은 `PROPOSED`로 유지합니다.
+따라서 ADR-0002도 V1 rollback 정본으로 보존하며, V2 branch evidence
+`VERIFIED`와 decision lifecycle을 혼합하지 않습니다.
 
 ## G2 pin-point: Why → What → How → Trade-off → 배운 점
 
@@ -41,8 +41,8 @@ offline path를 구현했다. 현재 검증 상태는 V2 Traceability에서만 �
 - **How**: checksum ledger, forward-prefix 검사, advisory lock, migration별 rollback,
   migration test별 disposable database로 `0001` apply/re-run/drift/history/failure/concurrency를
   검증했다. 전체 suite runner는 suite당 temporary database 하나를 사용한다.
-- **Trade-off**: Docker와 migration 운영비가 추가되고 HA/PITR, clean-clone 및
-  actual Codex/SSE 증거는 아직 제공하지 않는다.
+- **Trade-off**: Docker와 migration 운영비가 추가됩니다. Clean-clone과 actual
+  Codex/SSE는 검증했지만 HA/PITR와 backup/restore drill은 제공하지 않습니다.
 - **배운 점**: 측정하지 않은 성능 우위보다 진실원천과 failure surface를 줄이는
   선택이 이번 유지보수 경제성의 더 강한 증거다.
 
@@ -80,7 +80,7 @@ LLM 실행 중 corpus가 바뀐 경우 completed answer의 cache write를 건너
 race guard다.
 
 
-## P0 addendum — versioned cache and prompt boundary (`PARTIAL`)
+## P0 addendum — cache/input boundary `VERIFIED`, structured output `PARTIAL`
 
 - `answer_cache`의 `prompt_version`, `embedding_version`, `retrieval_version`은
   cache identity의 일부다. active exact/similar hit는 세 값이 현재 설정과 모두
@@ -175,7 +175,7 @@ service, credential, network, snapshot/DR와 dual-write protocol이 과도하다
 
 ## Consequences
 
-### Expected benefits to verify
+### 검증된 효과와 미검증 운영 범위
 
 - document/vector/cache/revision의 한 transaction과 전체 rollback
 - DB, migration, backup/restore, health와 CI 운영 대상 감소
@@ -190,9 +190,10 @@ service, credential, network, snapshot/DR와 dual-write protocol이 과도하다
 - 단일 노드이고 HA/PITR 운영·복구 훈련을 구현하지 않는다.
 - PostgreSQL project support가 pgvector 또는 vendor SLA를 자동 제공하지 않는다.
 
-## Acceptance evidence required
+## Acceptance evidence
 
-Status 승격에는 다음 현재-SHA 증거가 모두 필요하다.
+다음 현재-SHA 증거를 모두 확인했습니다. 이는 implementation acceptance를
+증명하지만 P0-08이 고정한 `PROPOSED` decision lifecycle을 자동 변경하지 않습니다.
 
 - 실제 PostgreSQL+pgvector 기반 `TEST-01`~`TEST-03`
 - write failure 전체 rollback과 이전 ready corpus 보존/retry

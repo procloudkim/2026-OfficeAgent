@@ -2,8 +2,8 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 상태 | `PARTIAL` — 변동 구현·검증 상태는 [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md)가 소유 |
-| 결정 수명주기 | DEC-010~012는 계속 `PROPOSED`; V1 결정을 아직 supersede하지 않음 |
+| 문서 상태 | `VERIFIED` — 변동 구현·검증 상태는 [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md)가 소유 |
+| 결정 수명주기 | P0-08에 따라 `main` supersession은 `PROPOSED`; V2 branch evidence는 `VERIFIED` |
 | 결정 | PostgreSQL 17.10 + pgvector 0.8.6 단일 영속 계층 |
 | Docker 범위 | PostgreSQL, migration과 offline integration test; CI는 `PLANNED` |
 | 제외 | API/Codex containerization, Redis, ANN, 별도 vector DB |
@@ -162,11 +162,12 @@ test를 같은 topology로 반복하기 위해서다.
 8. Redis cache-aside: https://redis.io/docs/latest/develop/use-cases/cache-aside/
 9. Qdrant production installation: https://qdrant.tech/documentation/installation/
 
-Local evidence는 `ARCHITECTURE.md`, ADR-0002, V1 storage code/tests와 G0 actual-host
-manifest receipt다. 외부 자료는 제품 선택의 일반 특성을 뒷받침하며 이 repository의
-구현 완료 증거를 대신하지 않는다.
+현재 구현 evidence는 [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md)가 소유합니다.
+`ARCHITECTURE.md`, ADR-0002, V1 storage code/tests와 G0 actual-host manifest receipt는
+설계·역사 근거입니다. 외부 자료는 일반 특성을 뒷받침할 뿐 이 repository의 구현
+완료 증거를 대신하지 않습니다.
 
-## 10. G2 구현으로 좁힌 결정과 pin-point
+## 10. `HISTORIC` G2 구현으로 좁힌 결정과 pin-point
 
 이 절은 2026-07-30에 실제 적용·검증한 G2 범위다. schema와 migration runner,
 Compose DB/test topology만 포함한다. ingestion, retrieval, cache invalidation의 제품

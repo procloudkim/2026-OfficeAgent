@@ -1,8 +1,9 @@
 # Architecture
 
-> V2의 구현·검증 상태는 `PARTIAL`입니다. 변동 SHA, remote parity, runtime 영수증과
-> 요구사항별 상태는 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)만
-> 소유합니다. V1의 역사적 runtime 증거를 V2 완료 증거로 재사용하지 않습니다.
+> 최신 제출 영수증에서 V2의 G8 current-SHA bundle은 `PASS`입니다. 요구사항별
+> 상태는 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)가 소유하며,
+> `REQ-09` structured output과 `PROC-04` worked-day push completeness만
+> `PARTIAL`입니다. V1의 역사적 runtime 증거를 V2 완료 증거로 재사용하지 않습니다.
 
 ## 1. Why–What–How
 
@@ -145,8 +146,9 @@ proxy 환경을 상속하지 않습니다.
 복수의 실제 delta를 요구합니다. receipt는 정규화된 Codex CLI version과
 sanitized citation metadata만 남기고 답변·cwd·DB conninfo를 제외합니다.
 
-이 경로의 과거 V1 smoke는 V2 증거가 아닙니다. current V2 SHA의 실제
-Codex/incremental SSE smoke가 별도 gate로 남아 있습니다.
+이 경로의 과거 V1 smoke는 V2 증거로 재사용하지 않았습니다. current V2 SHA에서
+실제 Codex App Server와 Uvicorn HTTP/SSE를 별도 실행해 incremental delta,
+citation과 cache 전이를 확인했습니다.
 
 ## 6. 데이터 소유권
 

@@ -129,15 +129,15 @@ cache match, Codex first-delta만 기록하고 업로드 문서 원문, 질문 �
 
 | ID | 수용 조건 | 현재 상태 |
 |---|---|---|
-| `TEST-01` | in-process FastAPI ASGI TXT/PDF upload → parser → ready document와 pgvector chunk 저장, revision 증가, same-byte no-op | `PARTIAL` |
-| `TEST-02` | 한국어 3문서 fixture에서 실제 `<=>` query top-k/citation/score, no-evidence LLM skip | `PARTIAL` |
-| `TEST-03` | exact/similar hit, CREATED/UPDATED/UNCHANGED, dependency·similarity invalidation과 config fallback | `PARTIAL` |
-| `TX-ROLLBACK` | chunk/vector 실패 시 document/cache/revision까지 전체 rollback, 이전 ready corpus 보존 | `PARTIAL` |
-| `TX-CONCURRENCY` | 동일 문서 직렬화, 다른 문서 revision 일관성 | `PARTIAL` |
-| `CACHE-RACE` | LLM 중 corpus 변경 시 stale answer cache 저장 방지 | `PARTIAL` |
-| `MIGRATION` | empty DB, 재실행, checksum mismatch, 실패 rollback | `PARTIAL` |
-| `SSE` | 첫 delta가 completed보다 먼저 전달되고 현재 V2 HEAD에서 실제 Codex live smoke | `PARTIAL` |
-| `CLEAN-RUN` | clean checkout에서 README DB/migration/API/test/readiness 절차 성공 | `MISSING` |
+| `TEST-01` | in-process FastAPI ASGI TXT/PDF upload → parser → ready document와 pgvector chunk 저장, revision 증가, same-byte no-op | `VERIFIED` |
+| `TEST-02` | 한국어 3문서 fixture에서 실제 `<=>` query top-k/citation/score, no-evidence LLM skip | `VERIFIED` |
+| `TEST-03` | exact/similar hit, CREATED/UPDATED/UNCHANGED, dependency·similarity invalidation과 config fallback | `VERIFIED` |
+| `TX-ROLLBACK` | chunk/vector 실패 시 document/cache/revision까지 전체 rollback, 이전 ready corpus 보존 | `VERIFIED` |
+| `TX-CONCURRENCY` | 동일 문서 직렬화, 다른 문서 revision 일관성 | `VERIFIED` |
+| `CACHE-RACE` | LLM 중 corpus 변경 시 stale answer cache 저장 방지 | `VERIFIED` |
+| `MIGRATION` | empty DB, 재실행, checksum mismatch, 실패 rollback | `VERIFIED` |
+| `SSE` | 첫 delta가 completed보다 먼저 전달되고 현재 V2 HEAD에서 실제 Codex live smoke | `VERIFIED` |
+| `CLEAN-RUN` | clean checkout에서 README DB/migration/API/test/readiness 절차 성공 | `VERIFIED` |
 
 ## 5. 비목표
 
@@ -160,6 +160,8 @@ cache match, Codex first-delta만 기록하고 업로드 문서 원문, 질문 �
 ## 7. 결정 상태
 
 PostgreSQL 17.10 + pgvector 0.8.6, exact cosine, 빈 V2 DB, host Codex와
-DB/test-only Docker 범위는 선택되어 `PARTIAL` 구현됐다. DEC-010~012의 decision
-lifecycle은 수용 evidence가 모두 충족될 때까지 `PROPOSED`를 유지한다. 각 claim의
-최신 상태는 `docs/V2_REQUIREMENTS_TRACEABILITY.md`만 관리한다.
+DB/test-only Docker 범위는 구현·검증됐습니다. DEC-010~012는 P0-08 계약에 따라
+`main` supersession에 대해 `PROPOSED`로 유지하며, V2 branch 구현 evidence의
+`VERIFIED` 상태와 구분합니다. Structured output 미구현으로 scoring rule
+`REQ-09`는 `PARTIAL`입니다.
+각 claim의 최신 상태는 `docs/V2_REQUIREMENTS_TRACEABILITY.md`만 관리합니다.

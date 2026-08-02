@@ -27,11 +27,11 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `docs/PRD_PHASE2.md` | V2 설계 계약과 수용 조건; 실제 상태는 V2 trace가 소유 |
 | `docs/TRADEOFF_STORAGE_AND_DOCKER.md` | V2 storage/Docker 선택과 trade-off |
 | `docs/V2_REQUIREMENTS_TRACEABILITY.md` | V2 요구사항·gate·증거 freshness의 단일 상태 정본 |
-| `docs/V1_V2_COMPARISON.md` | G8의 evidence-bound V1/V2 비교·잔여 한계·merge 정지선 |
+| `docs/V1_V2_COMPARISON.md` | G8의 evidence-bound V1/V2 비교·잔여 한계·제출 권고 |
 | `docs/DECISION_LOG.md` | 짧은 Why–What–How 결정 이력 |
 | `docs/adr/ADR-0001-*.md` | 구조·네이밍 governance |
 | `docs/adr/ADR-0002-*.md` | V1 SQLite/Chroma 저장소·검색·캐시 기준선 |
-| `docs/adr/ADR-0003-*.md` | Codex·SSE·retry 결정과 역사적 V1 live evidence |
+| `docs/adr/ADR-0003-*.md` | Codex·SSE·retry 결정, 역사적 V1과 current V2 live evidence |
 | `docs/adr/ADR-0004-*.md` | V2 PostgreSQL/pgvector product overlay와 승격 조건 |
 | `docs/verification/2026-07-28.md` | sanitized command receipt |
 | `docs/verification/2026-07-30-v2-g0.md` | V2 R0/G0 Docker·V1 preflight sanitized receipt |

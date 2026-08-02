@@ -436,3 +436,42 @@
   코드가 소유하도록 전환했다. 인증에는 실제 `CODEX_HOME` 접근이 필요하며 auth
   자체의 provider/CLI 경계는 이 로컬 guard가 증명하지 않는다.
 - clean checkout, remote parity와 final recorder/audit은 최종 commit 뒤 실행한다.
+
+## 2026-08-03 — 최종 증거와 평가자 문서 정합성
+
+### Why
+
+- 독립 zero-context 감사에서 구현·runtime은 통과했지만 README, Architecture와 V2
+  trace 문서가 final evidence 이전의 `PARTIAL` 상태를 계속 노출했다.
+- 평가자는 외부 Wiki를 보지 않아도 제출 repository만으로 실행 결과, 잔여 위험과
+  제출 권고를 구분할 수 있어야 한다.
+
+### What
+
+- 최신 G8 bundle이 확인한 Docker, real readiness, detached clean launch, actual
+  Codex/Uvicorn SSE, 문서·출처·Retrobot과 remote parity를 평가자 문서에 맞췄다.
+- V2 Traceability와 V1/V2 비교를 현재 사실 중심으로 다시 구성하고 중복된 과거
+  worktree 서술을 `HISTORIC` 경계로 압축했다.
+- `REQ-09` structured output과 `PROC-04` worked-day push completeness는 근거 없이
+  승격하지 않고 `PARTIAL`로 유지했다. DEC-010~012도 P0-08 lifecycle에 따라
+  `PROPOSED`를 유지했다.
+
+### How와 종료 조건
+
+- 제품 코드나 runtime 계약은 바꾸지 않고 evaluator-facing 문서와 이 WORKLOG만
+  수정했다.
+- 직전 G8 evidence 기준선은 공식 Docker suite `167 passed, 6 skipped`, 필수 node
+  `3/3`, readiness HTTP `200`/migration `0001`/pgvector `0.8.6`과 actual Codex/SSE를
+  통과했다.
+- 이 변경의 종료 조건을 문서 commit·자동 Retrobot commit 뒤 새 HEAD의 host/Docker
+  suite, readiness, detached clean launch, actual Codex/SSE, 문서·provenance·
+  Retrobot·remote profile 재실행으로 고정했다.
+- Local, tracking과 live remote SHA가 같고 worktree가 clean인 non-force push만 새
+  G8 final audit의 `PASS` 입력으로 인정하도록 했다.
+
+### 배운 점
+
+- 구현이 끝나도 오래된 상태 문구는 허위·미완료 인상을 만들 수 있다. 실행 영수증과
+  평가자 문서는 같은 current-SHA 갱신 주기를 가져야 한다.
+- scoring/process의 정직한 `PARTIAL`을 불합격처럼 확대하지 않으면서도 명시적으로
+  공개하는 것이 제출 완성도와 증거 신뢰도를 함께 높인다.

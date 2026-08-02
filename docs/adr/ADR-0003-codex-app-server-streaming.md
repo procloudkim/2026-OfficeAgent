@@ -1,12 +1,13 @@
 # ADR-0003: Codex App Server와 SSE 스트리밍
 
-> 증거 범위: V1의 실제 Codex smoke는 `VERIFIED`, V2의 live incremental SSE는
-> `PARTIAL`입니다. V2의 변동 evidence는
+> 증거 범위: V1의 실제 Codex smoke와 V2의 current-SHA live incremental SSE는
+> 각각 `VERIFIED`입니다. V2의 변동 evidence는
 > [V2 Traceability](../V2_REQUIREMENTS_TRACEABILITY.md)만 소유합니다.
 
 | 항목 | 내용 |
 |---|---|
-| Status | V1 `Accepted`; V2 overlay는 live 수용 evidence 전까지 `PROPOSED` |
+| Decision Status | `Accepted` |
+| Evidence Status | V1 historic live와 V2 current live 각각 `VERIFIED` |
 | Date | 2026-07-28 |
 
 ## Why
@@ -59,3 +60,6 @@ Codex CLI 경로와 맞는다. delta 이후 retry를 포기하면 일부 중단 
 - 실런타임: 2026-07-28 `scripts/live_smoke.py`에서 Codex CLI 0.145.0을 통해
   실제 Uvicorn HTTP SSE 최종 delta 17개, pre-completion delta, completed,
   `company-policy.txt` citation을 확인했다.
+- V2 실런타임: current-SHA `scripts.live_smoke`에서 Codex CLI 0.146.0,
+  Uvicorn HTTP/SSE, 두 miss의 복수 delta, exact cache replay, document version
+  update 뒤 miss와 versioned citation을 확인했다.

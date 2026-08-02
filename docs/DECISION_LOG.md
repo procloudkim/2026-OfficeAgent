@@ -12,9 +12,14 @@ remote parity와 runtime freshness는
 
 ## Register
 
-`DEC-001`~`DEC-009`는 제출 가능한 V1 기준선의 ACTIVE 결정이다. `DEC-010`~`DEC-012`는
-수용 evidence가 모두 충족되기 전까지 `PROPOSED` overlay이며 V1을 대체하지 않는다.
-현재 evidence 상태는 V2 Traceability에서만 판정한다.
+`DEC-001`~`DEC-009`는 제출 가능한 V1 기준선의 ACTIVE 결정입니다.
+`DEC-010`~`DEC-012`는 P0-08 계약에 따라 `PROPOSED` overlay로 유지하며 V1 결정을
+대체하지 않습니다. 이 lifecycle과 별개로 현재 구현·검증 evidence는
+V2 Traceability에서 판정합니다.
+
+P0-08은 구현 미완료 표지가 아니라 V1 rollback 결정을 `main`에서 자동 supersede하지
+않도록 미리 고정한 review 경계입니다. 즉 DEC-010~012는 `main` supersession에 대해
+`PROPOSED`, V2 branch 구현 evidence는 `VERIFIED`이며 두 상태는 모순되지 않습니다.
 
 | ID | Status | What | Why | How | Trade-off | Evidence | ADR |
 |---|---|---|---|---|---|---|---|
@@ -41,6 +46,10 @@ remote parity와 runtime freshness는
 - implementation claim은 실제 code/test와 일치해야 한다.
 - evidence/receipt 상태는 불변 source commit에 연결하고 최신 Submission HEAD는 Control sync에서 갱신한다.
 ## Revision History
+
+- 2026-08-03: DEC-010~012의 current-SHA PostgreSQL, clean launch, 실제 Codex/SSE와
+  문서 evidence를 검증했다. P0-08 계약에 따라 decision lifecycle은 `PROPOSED`로
+  유지하고, 제품 evidence의 `VERIFIED` 상태와 분리했다.
 
 - 2026-07-30: P0 addendum에 따라 `DEC-010`~`DEC-012`를 모두 `PROPOSED`로
   기록했다. V2 수용 evidence가 모두 충족되기 전에는 V1 결정을 supersede하거나
