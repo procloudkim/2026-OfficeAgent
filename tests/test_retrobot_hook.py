@@ -98,6 +98,7 @@ def test_retrobot_complete_bound_prompt_inputs_are_identity_free() -> None:
     assert 'git show "${COMMIT_SHA}:${WORKLOG_RELPATH}"' in HOOK
     assert '"$PYTHON_BIN" "$CONTEXT_PATH"' in HOOK
     assert 'cat "$WORKLOG_RELPATH"' not in HOOK
+    assert "필수 직접 보완 comment 외 HTML" in prompt_builder
     assert HOOK.index('COMMIT_SHA=$(git rev-parse HEAD') < HOOK.index(
         'git show "${COMMIT_SHA}:${WORKLOG_RELPATH}"'
     )
@@ -112,7 +113,7 @@ def test_retrobot_complete_bound_prompt_inputs_are_identity_free() -> None:
 
     assert len(bound_prompt.encode()) <= MAX_PROMPT_BYTES
     assert "## 2026-07-28" not in latest_worklog
-    assert "127 passed" in latest_worklog
+    assert "134 passed" in latest_worklog
     _assert_identity_free(bound_prompt)
     validate_retrobot_prompt(bound_prompt.encode())
 

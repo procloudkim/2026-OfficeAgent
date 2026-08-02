@@ -209,7 +209,7 @@ echo "🤖 Retrobot: 회고 생성 중..."
     printf "\n### 이 실행의 추가 출력 계약\n\n"
     printf '%s\n' "- 요약의 기준 커밋 값은 위 full_sha 전체만 사용한다."
     printf '%s\n' "- SKILL.md의 heading을 순서대로 한 번씩만 사용한다."
-    printf '%s\n' "- URL, link, image, HTML, code fence와 credential을 출력하지 않는다."
+    printf '%s\n' "- URL, link, image, code fence, credential과 필수 직접 보완 comment 외 HTML을 출력하지 않는다."
     printf "\n\n### 최신 제한 작업 로그\n\n"
     cat "$WORKLOG_SECTION_PATH"
 } | "$PYTHON_BIN" "$GUARD_PATH" \

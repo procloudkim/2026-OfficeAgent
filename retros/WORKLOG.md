@@ -420,6 +420,7 @@
   final current-SHA 실행 전까지 live `VERIFIED`를 주장하지 않는다.
 - 제품 commit `873e155`와 보완 commit `2111b2e`의 Retrobot 호출은 출력 계약을
   통과하지 못해 회고를 publish하지 않았다. guard는 고정된 거절 사유만 출력하도록
-  보강했으며 다음 실제 hook에서 원인을 확인한다. 인증에는 실제 `CODEX_HOME` 접근이
-  필요하며 auth 자체의 provider/CLI 경계는 이 로컬 guard가 증명하지 않는다.
+  보강했다. `d3dbd0e` 실행에서 필수 직접 보완 comment와 HTML 금지 지시의 모순이
+  원인임을 확인해 해당 marker 하나만 예외로 명시한다. 인증에는 실제 `CODEX_HOME`
+  접근이 필요하며 auth 자체의 provider/CLI 경계는 이 로컬 guard가 증명하지 않는다.
 - clean checkout, remote parity와 final recorder/audit은 최종 commit 뒤 실행한다.
