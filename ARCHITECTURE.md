@@ -1,9 +1,8 @@
 # Architecture
 
-> 상태 경계: 이 문서는 현재 V2 로컬 워크트리의 실제 코드 구조를 설명합니다.
-> 구독 없는 Docker suite `48 passed`는 확인했지만 아직 current-SHA, remote parity,
-> clean clone과 실제 Codex/SSE 영수증이 없으므로 V2를 `VERIFIED`로 표현하지
-> 않습니다. DEC-010~012는 계속 `PROPOSED`입니다.
+> V2의 구현·검증 상태는 `PARTIAL`입니다. 변동 SHA, remote parity, runtime 영수증과
+> 요구사항별 상태는 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)만
+> 소유합니다. V1의 역사적 runtime 증거를 V2 완료 증거로 재사용하지 않습니다.
 
 ## 1. Why–What–How
 
@@ -93,15 +92,18 @@ prepare를 허용하고 singleton revision row update가 증가를 직렬화합�
   "question": "사용자 질문",
   "evidence": [
     {
+      "id": 1,
       "text": "검색 청크 원문",
       "metadata": {
         "document_id": "...",
         "document_version": 1,
         "filename": "...",
         "chunk_id": "...",
+        "chunk_index": 0,
         "page_number": null,
         "start_offset": 0,
-        "end_offset": 42
+        "end_offset": 42,
+        "score": 0.91
       }
     }
   ]
@@ -124,9 +126,24 @@ plain text delta이며 citation은 모델 출력과 분리합니다.
 ephemeral/read-only/never-approve/no-tool thread를 만들고 같은 turn의
 `item/agentMessage/delta`만 `answer.delta`로 전달합니다.
 
+Codex child에는 `PATH`·`HOME`·`CODEX_HOME`, locale/temp/certificate/proxy 등 실행에
+필요한 allowlist만 전달합니다. API key, database URL, Git/cloud token을 비롯한 그
+밖의 host 환경 변수는 상속하지 않습니다. 전용 cwd와 read-only sandbox는 OS 수준
+read privacy boundary라는 주장이 아니며, live smoke는 repository 밖의 일회용 cwd를
+사용합니다.
+
+live smoke의 DB 경계는 제품 DB와 분리됩니다. admin conninfo는 loopback host의
+`postgres` database만 허용하고, 무작위 `officeagent_test_<12hex>` database를
+생성합니다. `build_services` startup으로 migration을 적용한 후 그 database로만
+HTTP flow를 수행하며 정상·예외 모두에서 삭제합니다. loopback HTTP client는
+proxy 환경을 상속하지 않습니다.
+
 첫 delta 전 transport/timeout만 한 번 재시도하고 delta 이후에는 중복 답변과
 이중 사용량을 피하기 위해 재시도하지 않습니다. cache hit의 80자 replay는
-`cache_hit=true`로 live delta와 구분합니다.
+`cache_hit=true`로 live delta와 구분합니다. G7 harness는 citation 및
+`miss → exact hit → 문서 update → miss`를 한 runtime에서 검증하고, 두 miss에
+복수의 실제 delta를 요구합니다. receipt는 정규화된 Codex CLI version과
+sanitized citation metadata만 남기고 답변·cwd·DB conninfo를 제외합니다.
 
 이 경로의 과거 V1 smoke는 V2 증거가 아닙니다. current V2 SHA의 실제
 Codex/incremental SSE smoke가 별도 gate로 남아 있습니다.
@@ -143,8 +160,9 @@ Codex/incremental SSE smoke가 별도 gate로 남아 있습니다.
 | `schema_migrations` | forward-only version/checksum/applied time |
 
 Migration runner는 session advisory lock, checksum과 applied-prefix 검사를
-fail-closed로 적용합니다. 각 migration은 독립 transaction이고 테스트마다 고유
-database를 생성·삭제합니다.
+fail-closed로 적용합니다. 각 migration은 독립 transaction입니다. 공식 test
+runner는 suite마다 고유 temporary database 하나를 생성·삭제하고, 별도 격리가
+필요한 migration test는 test별 disposable database를 사용합니다.
 
 ## 7. Docker·credential 경계
 
@@ -156,28 +174,36 @@ Test image build와 runtime test는 다음을 거부합니다.
 - Node와 Codex executable
 - `OPENAI_*`, `CODEX_*`, `*_API_KEY`, `*_TOKEN`
 - `/root/.codex`, `/app/.codex`와 `.codex` mount
+- `officeagent_test_<hex>`가 아닌 effective libpq database target
 
 이 경계 덕분에 offline suite에서 LLM과 embedding만 double이고 PostgreSQL,
-migration, pgvector, parser, HTTP/SSE와 cache transaction은 실제 구현입니다.
+migration, pgvector, parser와 cache transaction은 실제 구현입니다. HTTP/SSE는
+in-process FastAPI ASGI 계약이며 TCP/Uvicorn 또는 실제 Codex streaming 증거가
+아닙니다.
 
-## 8. 검증과 상태
+## 8. Readiness 경계
 
-현재 로컬 워크트리:
+`/health/live`는 process liveness만 반환합니다. V2 완료 계약의 `/health/ready`는
+Codex나 embedding model을 호출하지 않고 다음 세 항목만 확인해야 합니다.
 
-- `docker compose run --build --rm test` → `48 passed`
-- 실제 TXT/PDF HTTP ingestion과 한국어 3문서 retrieval
-- exact/similar cache, 세 version mismatch와 update invalidation
-- chunk failure와 post-invalidation failure 전체 rollback
-- 동일/서로 다른 document concurrency와 revision 일관성
-- stale revision cache-write skip
-- delimiter breakout JSON round-trip
-- test-container credential/runtime isolation
+- PostgreSQL 연결
+- source와 database의 migration head/checksum 일치
+- pgvector extension 가용 version
 
-이는 commit에 고정되지 않은 local-worktree 영수증입니다. current-SHA와 remote
-parity 전에는 `IMPLEMENTED/PARTIAL`, 실제 Codex/SSE 전에는 제품 end-to-end를
-`VERIFIED`로 승격하지 않습니다.
+Readiness 실패와 timeout은 credential·DSN·내부 exception을 응답하지 않는
+`503`으로 축약합니다. endpoint, DB connect와 query는 기본 5초, 최대 30초인 같은
+설정값으로 bound됩니다.
+API는 application-owned probe port만 호출하고 Psycopg와 migration 구현을 직접 알지
+않습니다. 실행 상태는 V2 Traceability에서 추적합니다.
 
-## 9. Trade-off와 한계
+## 9. 검증과 상태
+
+공식 offline suite의 불변 경계는 실제 PostgreSQL/pgvector, parser, transaction과
+in-process FastAPI ASGI 계약이며 LLM과 embedding만 double로 교체합니다. 이
+경계는 실제 Codex incremental SSE를 증명하지 않습니다. 변동 영수증과 승격 여부는
+[V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)만 갱신합니다.
+
+## 10. Trade-off와 한계
 
 - PostgreSQL/pgvector는 한 transaction과 운영 진실원천을 제공하지만 Docker,
   migration, backup/restore 운영비가 생깁니다.

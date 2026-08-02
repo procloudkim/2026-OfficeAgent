@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from pathlib import Path
@@ -14,6 +15,42 @@ from officeagent.domain.ports import LlmGateway
 from officeagent.infrastructure.settings import Settings, get_settings
 
 JsonObject = Mapping[str, Any]
+
+CODEX_CHILD_ENV_ALLOWLIST = frozenset(
+    {
+        "ALL_PROXY",
+        "CODEX_HOME",
+        "CURL_CA_BUNDLE",
+        "HOME",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LOGNAME",
+        "NODE_EXTRA_CA_CERTS",
+        "NO_PROXY",
+        "PATH",
+        "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "TEMP",
+        "TERM",
+        "TMP",
+        "TMPDIR",
+        "USER",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_RUNTIME_DIR",
+        "all_proxy",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+    }
+)
+_REQUIRED_CODEX_CHILD_ENVIRONMENT = ("HOME", "PATH")
 
 
 class CodexAppServerError(RuntimeError):
@@ -401,11 +438,31 @@ class CodexAppServerGateway(LlmGateway):
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=codex_child_environment(),
         )
         return _SubprocessAppServerSession(
             process,
             notification_queue_size=self._settings.codex_notification_queue_size,
         )
+
+
+def codex_child_environment(
+    source: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Copy only runtime plumbing needed by the subscription-backed Codex CLI."""
+
+    active = os.environ if source is None else source
+    child_environment = {
+        name: active[name] for name in CODEX_CHILD_ENV_ALLOWLIST if name in active
+    }
+    missing = [
+        name for name in _REQUIRED_CODEX_CHILD_ENVIRONMENT if not child_environment.get(name)
+    ]
+    if missing:
+        raise CodexAppServerTransportError(
+            "Codex child environment is missing required variables: " + ", ".join(missing)
+        )
+    return child_environment
 
 
 def _required_id(result: JsonObject, object_name: str) -> str:

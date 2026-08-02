@@ -9,9 +9,9 @@ canonical source는
 [`src/officeagent/application/prompts.py`](./src/officeagent/application/prompts.py)이며
 `PROMPT_TEMPLATE_VERSION = "grounded-json-v2"`도 그 파일에만 선언합니다.
 
-현재 JSON envelope와 delimiter breakout 회귀는 로컬 워크트리에 구현되어 있고
-Docker 전체 suite `48 passed`를 확인했습니다. 아직 current-SHA와 실제 Codex/SSE
-영수증 전이므로 V2 전체를 `VERIFIED`로 표현하지 않습니다.
+JSON envelope와 delimiter breakout 경계의 구현·검증 상태는 `PARTIAL`입니다.
+변동 SHA, remote parity와 runtime 영수증은
+[V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)만 소유합니다.
 
 ## Why–What–How
 
@@ -36,11 +36,12 @@ UNTRUSTED_INPUT_JSON:
 {"evidence":[...],"prompt_version":"grounded-json-v2","question":"..."}
 ```
 
-각 evidence object는 다음 두 부분을 가집니다.
+각 evidence object는 다음 세 부분을 가집니다.
 
+- `id`: 1부터 시작하는 prompt-local evidence 순번
 - `text`: 검색된 청크 원문
 - `metadata`: document id/version, filename, chunk id/index, page,
-  start/end offset
+  start/end offset, retrieval score
 
 `ensure_ascii=False`, `allow_nan=False`, compact separators와 `sort_keys=True`를
 사용하고 serialized JSON의 `&`, `<`, `>`를 각각 `\u0026`, `\u003c`,
@@ -91,7 +92,7 @@ active row의 다음 값이 모두 현재 설정과 같을 때만 허용합니�
   - 세 version current-match hit와 각각의 mismatch miss
   - prompt version drift의 전체 fallback invalidation
 - `tests/test_v2_offline_paths.py`
-  - 실제 HTTP/pgvector/cache 흐름에서 version 저장과 cache 재사용
+  - in-process FastAPI ASGI/pgvector/cache 흐름에서 version 저장과 cache 재사용
 
 자동화는 구조·호출 경계를 검증합니다. answer 의미 품질과 adversarial prompt
 injection 방어율을 정량화하는 evaluator는 아직 없습니다.

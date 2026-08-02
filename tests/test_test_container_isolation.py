@@ -7,15 +7,89 @@ import shutil
 from pathlib import Path
 
 import pytest
+from psycopg.conninfo import conninfo_to_dict
 
-_SENTINEL = "OFFICEAGENT_TEST_CONTAINER_ISOLATION"
-_FORBIDDEN_ENVIRONMENT_NAMES = {
-    "OPENAI_API_KEY",
-    "OPENAI_ORG_ID",
-    "CODEX_API_KEY",
-    "CODEX_HOME",
-    "OFFICEAGENT_CODEX_API_KEY",
-}
+from officeagent.infrastructure.test_runner import (
+    TEST_CONTAINER_SENTINEL,
+    find_forbidden_environment_names,
+    replace_database_name,
+    validate_isolated_database_url,
+    validate_test_container_environment,
+    validate_test_database_environment,
+)
+
+_SENTINEL = TEST_CONTAINER_SENTINEL
+
+
+def test_isolation_predicates_fail_closed_without_disclosing_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    names = {
+        "API_KEY",
+        "TOKEN",
+        "PATH",
+        "ANTHROPIC_API_KEY",
+        "GITHUB_TOKEN",
+        "OPENAI_ORG_ID",
+    }
+
+    assert find_forbidden_environment_names(names) == (
+        "ANTHROPIC_API_KEY",
+        "API_KEY",
+        "GITHUB_TOKEN",
+        "OPENAI_ORG_ID",
+        "TOKEN",
+    )
+    with pytest.raises(RuntimeError, match="sentinel"):
+        validate_test_container_environment({"PATH": "/usr/bin"})
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY") as exc_info:
+        validate_test_container_environment(
+            {_SENTINEL: "1", "ANTHROPIC_API_KEY": "not-logged"}
+        )
+    assert "not-logged" not in str(exc_info.value)
+    validate_test_container_environment({_SENTINEL: "1", "PATH": "/usr/bin"})
+
+    validate_isolated_database_url(
+        "postgresql://officeagent:not-logged@db:5432/officeagent_test_012345abcdef"
+    )
+    for unsafe_connection in (
+        "",
+        "not-a-connection-string",
+        "postgresql://officeagent:not-logged@db:5432/officeagent",
+        "postgresql://officeagent:not-logged@db:5432/officeagent_test_short",
+    ):
+        with pytest.raises(RuntimeError, match="isolated") as connection_error:
+            validate_isolated_database_url(unsafe_connection)
+        assert "not-logged" not in str(connection_error.value)
+    with pytest.raises(RuntimeError, match="isolated"):
+        validate_isolated_database_url(
+            "postgresql://officeagent:not-logged@db:5432/"
+            "officeagent_test_012345abcdef?dbname=production"
+        )
+    replaced_url = replace_database_name(
+        "postgresql://officeagent:not-logged@db:5432/postgres?dbname=production",
+        "officeagent_test_012345abcdef",
+    )
+    assert conninfo_to_dict(replaced_url)["dbname"] == "officeagent_test_012345abcdef"
+    with pytest.raises(RuntimeError, match="isolated"):
+        validate_test_database_environment(
+            {
+                _SENTINEL: "1",
+                "OFFICEAGENT_DATABASE_URL": (
+                    "postgresql://officeagent:not-logged@db:5432/officeagent"
+                ),
+            }
+        )
+
+    def parser_must_not_run(_: str) -> dict[str, str]:
+        raise AssertionError("oversized conninfo reached the parser")
+
+    monkeypatch.setattr(
+        "officeagent.infrastructure.test_runner.conninfo_to_dict",
+        parser_must_not_run,
+    )
+    with pytest.raises(RuntimeError, match="isolated"):
+        validate_isolated_database_url("x" * 4_097)
 
 
 @pytest.mark.skipif(
@@ -28,16 +102,8 @@ def test_compose_test_container_excludes_codex_node_credentials_and_mounts() -> 
     assert shutil.which("node") is None
     assert shutil.which("codex") is None
 
-    forbidden_keys = sorted(
-        key
-        or key.endswith("_API_KEY")
-        or key.endswith("_TOKEN")
-        for key in os.environ
-        if key in _FORBIDDEN_ENVIRONMENT_NAMES
-        or key.startswith("CODEX_")
-        or key.startswith("OPENAI_")
-    )
-    assert forbidden_keys == []
+    forbidden_keys = find_forbidden_environment_names(os.environ)
+    assert not forbidden_keys
 
     assert not Path("/app/.codex").exists()
     assert not Path("/root/.codex").exists()

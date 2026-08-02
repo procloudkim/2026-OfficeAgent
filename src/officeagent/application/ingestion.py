@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from typing import Protocol
 
 import anyio
 
@@ -14,6 +15,23 @@ from officeagent.infrastructure.parsers import extract_sections, normalize_filen
 
 class DocumentTooLargeError(ValueError):
     """Raised before parsing when an upload exceeds the configured bound."""
+
+
+class DocumentIngestion(Protocol):
+    """Application contract shared by the V1 and transactional V2 use cases."""
+
+    @property
+    def max_upload_bytes(self) -> int:
+        """Return the transport read bound."""
+
+    async def ingest(
+        self,
+        *,
+        filename: str,
+        content_type: str,
+        content: bytes,
+    ) -> IngestionResult:
+        """Persist one supported document."""
 
 
 class IngestionService:

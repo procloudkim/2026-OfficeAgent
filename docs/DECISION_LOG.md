@@ -2,19 +2,19 @@
 
 현재 기술 선택의 간결한 `What–Why–How–Trade-off` 정본입니다. README는 실행과
 핵심 선택을 요약하고, `ARCHITECTURE.md`는 시스템 흐름과 실패 경계를 설명합니다.
-프롬프트 고유 결정은 `PROMPT_DESIGN.md`, 요구사항별 검증 상태는
-`REQUIREMENTS_TRACEABILITY.md`, 되돌리기 어렵거나 위험한 결정의 상세 근거는
-연결된 ADR이 소유합니다.
+프롬프트 고유 결정은 `PROMPT_DESIGN.md`, 현재 V2 요구사항별 검증 상태는
+`V2_REQUIREMENTS_TRACEABILITY.md`, V1 역사 증거는 `REQUIREMENTS_TRACEABILITY.md`,
+되돌리기 어렵거나 위험한 결정의 상세 근거는 연결된 ADR이 소유합니다.
 
-`Status`는 decision lifecycle만 나타내며 구현 검증 상태가 아닙니다. 실행
-영수증은 불변 source commit에 연결하고, 최신 Submission HEAD와 증거의
-freshness는 Control에서 별도로 추적합니다.
+`Status`는 decision lifecycle만 나타내며 구현 검증 상태가 아닙니다. 변동 SHA,
+remote parity와 runtime freshness는
+[V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md)만 소유합니다.
 
 ## Register
 
 `DEC-001`~`DEC-009`는 제출 가능한 V1 기준선의 ACTIVE 결정이다. `DEC-010`~`DEC-012`는
-V2 로컬 구현이 존재하더라도 current-SHA·remote parity·actual Codex/SSE 수용
-증거 전에는 `PROPOSED` overlay이며 V1을 대체하지 않는다.
+수용 evidence가 모두 충족되기 전까지 `PROPOSED` overlay이며 V1을 대체하지 않는다.
+현재 evidence 상태는 V2 Traceability에서만 판정한다.
 
 | ID | Status | What | Why | How | Trade-off | Evidence | ADR |
 |---|---|---|---|---|---|---|---|
@@ -27,9 +27,9 @@ V2 로컬 구현이 존재하더라도 current-SHA·remote parity·actual Codex/
 | DEC-007 | ACTIVE | exact 우선·cosine `0.95` similar cache와 pre-write invalidation/re-index 정책을 사용한다. `CREATED`·`UNCHANGED`는 corpus 전체, `UPDATED`는 document dependency만 무효화한다. | metadata-first ingest 실패와 same-byte retry 사이에 만들어진 old-corpus cache를 순차 retry에서 제거한다. | SQLite `valid`·dependency row와 `IngestionService`가 invalidation 후 embedding/vector 교체를 수행한다. | 정상 same-hash도 전체 cache를 비우며 cross-store atomicity와 동시 recache race는 해결하지 않는다. | `src/officeagent/application/ingestion.py`, `src/officeagent/infrastructure/sqlite_store.py`, `tests/test_cache_invalidation.py` | [ADR-0002](adr/ADR-0002-storage-retrieval-and-cache.md) |
 | DEC-008 | ACTIVE | score-gated retrieval, untrusted-evidence prompt, no-evidence LLM skip, server-generated deterministic citation을 사용한다. | 문서 밖 답변과 모델이 만든 허위 출처를 제한한다. | top-5 중 기본 score `0.30` 이상만 prompt에 넣고 citation은 검색된 `Chunk`에서 만들며 client-controlled metadata를 attribute용으로 escape한다. | threshold는 gold-set 최적값이 아니다. citation은 retrieval provenance이며 model이 각 청크를 사용했는지 또는 answer를 지지하는지 post-generation으로 검증하지 않는다. | `src/officeagent/application/question_answering.py`, `src/officeagent/application/prompts.py`, `PROMPT_DESIGN.md`, `tests/test_retrieval.py`, `tests/test_prompts.py` | — |
 | DEC-009 | ACTIVE | Retrobot은 활성화된 post-commit hook의 Codex-only·bounded-prompt KPT 생성 경로로 운영한다. | commit 단위 과정 증거를 남기되 전역 개인 로그와 다른 project 정보를 prompt payload로 넣지 않는다. | hook이 skill, 최신 `git show`, 선택적 `retros/WORKLOG.md`를 read-only·ephemeral `codex exec`에 전달하고 생성 회고·timeline explicit path만 자동 commit한다. | read-only는 repository read-isolation이 아니며 `core.hooksPath`와 Codex가 필요하다. skip/실패 시 회고가 없고 Claude fallback·별도 수동 경로도 없다. | `.githooks/post-commit`, `retrobot/SKILL.md`, `retrobot/README.md`, `tests/test_retrobot_hook.py` | — |
-| DEC-010 | PROPOSED | PostgreSQL 17.10+pgvector 0.8.6, Psycopg 3와 digest-pinned Compose를 V2의 단일 영속 기반으로 전환한다. | V1 SQLite/Chroma의 cross-store transaction·backup·health 경계를 줄이고 evaluator/CI에서 같은 DB topology를 재현한다. | migration 위에 unified CorpusStore, revision guard와 V2 bootstrap을 로컬 워크트리에 구현했다. | Docker·extension·migration 운영비가 추가되며 HA/PITR, vendor SLA, clean-clone·live 제품 증거는 아직 없다. | local dirty worktree Docker `48 passed`; current-SHA, remote parity, actual Codex/SSE pending | [ADR-0004](adr/ADR-0004-postgresql-pgvector-storage.md) |
-| DEC-011 | PROPOSED | answer cache hit는 prompt/embedding/retrieval version이 현재 설정과 모두 일치할 때만 허용한다. | prompt, embedding model 또는 retrieval policy 변경 뒤 오래된 answer를 재사용하지 않는다. | `PROMPT_TEMPLATE_VERSION`을 `prompts.py` 단일 정본으로 두고 PostgreSQL/SQLite lookup·write·invalidation이 세 version을 비교한다. | version 조합별 cache reuse가 줄고 stale row는 soft invalidation 기록으로 남는다. | `tests/test_postgres_corpus_store.py`, `tests/test_v2_offline_paths.py`; local Docker PASS, current-SHA pending | [ADR-0004](adr/ADR-0004-postgresql-pgvector-storage.md) |
-| DEC-012 | PROPOSED | question/evidence/metadata를 JSON untrusted-data envelope로 만들고 structured LLM output은 별도 spike 전까지 도입하지 않는다. | delimiter breakout을 구조적으로 줄이면서 text-delta/SSE 계약을 불필요하게 변경하지 않는다. | deterministic JSON serialization과 breakout regression을 구현하고 citation은 server-generated retrieval provenance로 유지한다. | JSON envelope는 injection 의미 안전성이나 answer entailment를 보장하지 않으며 structured output의 장점은 spike 전 검증하지 않는다. | `PROMPT_DESIGN.md`, `tests/test_prompts.py`; local regression PASS, current-SHA pending | — |
+| DEC-010 | PROPOSED | PostgreSQL 17.10+pgvector 0.8.6, Psycopg 3와 digest-pinned Compose를 V2의 단일 영속 기반으로 전환한다. | V1 SQLite/Chroma의 cross-store transaction·backup·health 경계를 줄이고 evaluator에서 같은 DB topology를 재현한다. | migration 위에 unified CorpusStore, revision guard와 V2 bootstrap을 구현한다. | Docker·extension·migration 운영비가 추가되며 HA/PITR와 vendor SLA는 비범위다. | `src/officeagent/infrastructure/postgres_corpus_store.py`, `compose.yaml`, [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md) | [ADR-0004](adr/ADR-0004-postgresql-pgvector-storage.md) |
+| DEC-011 | PROPOSED | answer cache hit는 prompt/embedding/retrieval version이 현재 설정과 모두 일치할 때만 허용한다. | prompt, embedding model 또는 retrieval policy 변경 뒤 오래된 answer를 재사용하지 않는다. | `PROMPT_TEMPLATE_VERSION`을 `prompts.py` 단일 정본으로 두고 PostgreSQL/SQLite lookup·write·invalidation이 세 version을 비교한다. | version 조합별 cache reuse가 줄고 stale row는 soft invalidation 기록으로 남는다. | `tests/test_postgres_corpus_store.py`, `tests/test_v2_offline_paths.py`, [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md) | [ADR-0004](adr/ADR-0004-postgresql-pgvector-storage.md) |
+| DEC-012 | PROPOSED | question/evidence/metadata를 JSON untrusted-data envelope로 만들고 structured LLM output은 별도 spike 전까지 도입하지 않는다. | delimiter breakout을 구조적으로 줄이면서 text-delta/SSE 계약을 불필요하게 변경하지 않는다. | deterministic JSON serialization과 breakout regression을 구현하고 citation은 server-generated retrieval provenance로 유지한다. | JSON envelope는 injection 의미 안전성이나 answer entailment를 보장하지 않으며 structured output의 장점은 spike 전 검증하지 않는다. | `PROMPT_DESIGN.md`, `tests/test_prompts.py`, [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md) | — |
 
 ## History Policy
 
@@ -43,13 +43,11 @@ V2 로컬 구현이 존재하더라도 current-SHA·remote parity·actual Codex/
 ## Revision History
 
 - 2026-07-30: P0 addendum에 따라 `DEC-010`~`DEC-012`를 모두 `PROPOSED`로
-  기록했다. G2 local migration receipt는 보존하지만 remote durable parity, G3
-  current-SHA integration과 live Codex/SSE 전에는 V1 결정을 supersede하거나 V2
-  제품 구현을 verified로 표현하지 않는다.
-- 2026-07-30: unified CorpusStore, three-version cache, JSON prompt envelope와
-  actual PostgreSQL offline path가 로컬 Docker `48 passed`를 통과했다. 영수증은
-  아직 dirty worktree이므로 DEC lifecycle은 계속 `PROPOSED`이고 V1 상태는
-  변경하지 않았다.
+  기록했다. V2 수용 evidence가 모두 충족되기 전에는 V1 결정을 supersede하거나
+  V2 제품을 `VERIFIED`로 표현하지 않는다.
+- 2026-07-30: unified CorpusStore, three-version cache와 JSON prompt envelope를
+  구현했다. 실행 evidence는 V2 Traceability에서 관리하며 decision lifecycle은
+  계속 `PROPOSED`다.
 
 - 2026-07-28: `DEC-001`~`DEC-006`의 기술 선택을 기록했다.
 - 2026-07-29: `DEC-007`이 `DEC-002`에 함께 적혀 있던 cache invalidation/retry

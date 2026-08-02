@@ -27,5 +27,11 @@ htmlcov/
 # Repository history and generated process artifacts are not build inputs
 .git/
 retros/
+!retros/
+retros/*
+!retros/WORKLOG.md
 retrobot/
+!retrobot/
+retrobot/*
+!retrobot/SKILL.md
 docs/

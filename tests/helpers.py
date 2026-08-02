@@ -18,7 +18,7 @@ from officeagent.application.question_answering import (
     QuestionAnsweringService,
     build_retrieval_version,
 )
-from officeagent.domain.models import CacheVersions
+from officeagent.domain.models import CacheVersions, ReadinessStatus
 from officeagent.infrastructure.chroma_store import ChromaVectorStore
 from officeagent.infrastructure.sqlite_store import SqliteMetadataStore
 
@@ -76,6 +76,13 @@ class ForbiddenLlmGateway:
         yield  # pragma: no cover
 
 
+class StaticReadinessProbe:
+    """Readiness double for adapter-focused V1 regression tests."""
+
+    async def check(self) -> ReadinessStatus:
+        return ReadinessStatus(migration_head="test", vector_version="test")
+
+
 @dataclass(frozen=True)
 class TestRuntime:
     """Concrete local stores plus the application service container."""
@@ -131,6 +138,7 @@ async def build_test_runtime(
             cache_similarity_threshold=cache_similarity_threshold,
             cache_versions=cache_versions,
         ),
+        readiness=StaticReadinessProbe(),
     )
     return TestRuntime(
         services=services,

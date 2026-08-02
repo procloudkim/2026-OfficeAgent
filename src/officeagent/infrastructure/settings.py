@@ -8,6 +8,8 @@ from pathlib import Path
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+MAX_READINESS_TIMEOUT_SECONDS = 30.0
+
 
 class Settings(BaseSettings):
     """Runtime choices with conservative local-development defaults."""
@@ -16,14 +18,29 @@ class Settings(BaseSettings):
         env_prefix="OFFICEAGENT_",
         env_file=".env",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     data_dir: Path = Path(".data")
+    api_host: str = Field(default="127.0.0.1", min_length=1)
+    api_port: int = Field(default=8000, ge=1, le=65535)
     sqlite_filename: str = "officeagent.sqlite3"
     chroma_directory_name: str = "chroma"
     chroma_collection: str = "document_chunks_v1"
     database_url: str = (
         "postgresql://officeagent:officeagent_dev_only@127.0.0.1:15432/officeagent"
+    )
+    database_admin_url: str | None = None
+    readiness_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        le=MAX_READINESS_TIMEOUT_SECONDS,
+    )
+    readiness_instance_nonce: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
     )
 
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"

@@ -2,10 +2,10 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 상태 | `PARTIAL` — G3 CorpusStore·P0 offline path가 로컬 워크트리에 구현되고 Docker `48 passed`; current-SHA·remote parity·actual Codex/SSE는 pending |
+| 문서 상태 | `PARTIAL` — 변동 구현·검증 상태는 [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md)가 소유 |
 | 결정 수명주기 | DEC-010~012는 계속 `PROPOSED`; V1 결정을 아직 supersede하지 않음 |
 | 결정 | PostgreSQL 17.10 + pgvector 0.8.6 단일 영속 계층 |
-| Docker 범위 | PostgreSQL, migration, offline integration test와 CI |
+| Docker 범위 | PostgreSQL, migration과 offline integration test; CI는 `PLANNED` |
 | 제외 | API/Codex containerization, Redis, ANN, 별도 vector DB |
 | 증거 경계 | 운영비·성능·가용성의 정량 우위는 측정하지 않았으며 주장하지 않는다 |
 
@@ -118,7 +118,7 @@ test를 같은 topology로 반복하기 위해서다.
 - digest-pinned PostgreSQL+pgvector DB
 - `pg_isready` healthcheck와 named volume
 - migration runner와 subscription-free test image
-- CI의 Compose config/build/DB/migration/readiness 검증
+- 향후 CI의 Compose config/build/DB/migration/readiness 검증 (`PLANNED`)
 
 ### Docker가 소유하지 않는 것
 
@@ -205,7 +205,7 @@ Compose DB/test topology만 포함한다. ingestion, retrieval, cache invalidati
   migration과 구독 없는 integration test를 evaluator/CI에서 재현하는 것이다.
 - **What**: digest-pinned pgvector DB와 uv test image, loopback `15432`, named
   volume, `pg_isready`, `service_healthy`, migrate/test service를 사용한다.
-- **How**: healthy DB 뒤 migration을 적용하고 `docker compose run --rm test`가
+- **How**: healthy DB 뒤 migration을 적용하고 `docker compose run --build --rm test`가
   고유 temporary DB를 생성·검증·삭제한다. admin DB URL은 test service에만 주며
   shared/production credential 계약으로 사용하지 않는다.
 - **Trade-off**: V1 embedded-only 경로보다 Docker Desktop과 image pull이

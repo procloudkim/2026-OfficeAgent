@@ -1,83 +1,169 @@
 #!/bin/sh
 
 # Retrobot post-commit hook
-# Codex를 읽기 전용으로 실행하고, 최종 Markdown만 retros/에 저장합니다.
+# Codex에는 고정된 최소 입력만 보내고 검증된 Markdown만 회고 commit으로 남깁니다.
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$REPO_ROOT" || exit 0
 
 LAST_MSG=$(git log -1 --pretty=%s 2>/dev/null)
 case "$LAST_MSG" in
     "docs(retro): 자동 회고 생성 by Retrobot") exit 0 ;;
 esac
 
-SKILL_PATH="retrobot/SKILL.md"
-WORKLOG_PATH="retros/WORKLOG.md"
+SKILL_PATH="${REPO_ROOT}/retrobot/SKILL.md"
+WORKLOG_PATH="${REPO_ROOT}/retros/WORKLOG.md"
+GUARD_PATH="${REPO_ROOT}/scripts/retrobot_guard.py"
 
-if [ ! -f "$SKILL_PATH" ] || [ "${RETROBOT_SKIP:-0}" = "1" ]; then
+if [ ! -f "$SKILL_PATH" ] || [ ! -f "$GUARD_PATH" ] || [ "${RETROBOT_SKIP:-0}" = "1" ]; then
     exit 0
 fi
 
-if ! command -v codex >/dev/null 2>&1; then
+CODEX_BIN=$(command -v codex 2>/dev/null)
+if [ -z "$CODEX_BIN" ]; then
     echo "ℹ Retrobot: codex CLI를 찾지 못해 회고 생성을 건너뜁니다."
     exit 0
 fi
 
+PYTHON_BIN=$(command -v python3 2>/dev/null)
+if [ -z "$PYTHON_BIN" ]; then
+    PYTHON_BIN=$(command -v python 2>/dev/null)
+fi
+if [ -z "$PYTHON_BIN" ]; then
+    echo "ℹ Retrobot: Python을 찾지 못해 회고 생성을 건너뜁니다."
+    exit 0
+fi
+
+mkdir -p "${REPO_ROOT}/retros" || exit 0
+
 STAMP=$(TZ=KST-9 date "+%Y-%m-%d_%H%M%S")
 RETRO_PATH="retros/${STAMP}_retro.md"
-TEMP_PATH="${RETRO_PATH}.tmp"
 TIMELINE_PATH="retros/TIMELINE.md"
-GIT_DIR=$(git rev-parse --git-dir)
-ERROR_LOG="${GIT_DIR}/retrobot-last.log"
+RETRO_ABS_PATH="${REPO_ROOT}/${RETRO_PATH}"
+TIMELINE_ABS_PATH="${REPO_ROOT}/${TIMELINE_PATH}"
+TEMP_ABS_PATH=$(mktemp "${REPO_ROOT}/retros/.retrobot-output.XXXXXX") || exit 0
+TIMELINE_NEXT=
+TIMELINE_BACKUP=
+RETROBOT_RUN_DIR=
+TIMELINE_HAD_ORIGINAL=0
+PUBLISHED=0
+COMMITTED=0
 
-mkdir -p retros
+cleanup_retrobot() {
+    if [ "$PUBLISHED" = "1" ] && [ "$COMMITTED" != "1" ]; then
+        git reset -q HEAD -- "$RETRO_PATH" "$TIMELINE_PATH" 2>/dev/null || true
+        rm -f -- "$RETRO_ABS_PATH"
+        if [ "$TIMELINE_HAD_ORIGINAL" = "1" ] && [ -n "$TIMELINE_BACKUP" ]; then
+            mv -f -- "$TIMELINE_BACKUP" "$TIMELINE_ABS_PATH" 2>/dev/null || true
+            TIMELINE_BACKUP=
+        else
+            rm -f -- "$TIMELINE_ABS_PATH"
+        fi
+    fi
+    rm -f -- "$TEMP_ABS_PATH"
+    if [ -n "$TIMELINE_NEXT" ]; then
+        rm -f -- "$TIMELINE_NEXT"
+    fi
+    if [ -n "$TIMELINE_BACKUP" ]; then
+        rm -f -- "$TIMELINE_BACKUP"
+    fi
+    case "${RETROBOT_RUN_DIR:-}" in
+        /tmp/officeagent-retrobot.??????)
+            find "$RETROBOT_RUN_DIR" -xdev -mindepth 1 -delete 2>/dev/null || true
+            rmdir -- "$RETROBOT_RUN_DIR" 2>/dev/null || true
+            ;;
+    esac
+}
+
+trap cleanup_retrobot EXIT
+trap 'exit 1' HUP INT TERM
+
+if [ -e "$RETRO_ABS_PATH" ]; then
+    echo "ℹ Retrobot: 같은 시각의 회고가 이미 있어 생성을 건너뜁니다."
+    exit 0
+fi
+if ! git diff --quiet -- "$TIMELINE_PATH" || ! git diff --cached --quiet -- "$TIMELINE_PATH"; then
+    echo "ℹ Retrobot: 기존 타임라인 변경을 보호하기 위해 생성을 건너뜁니다."
+    exit 0
+fi
+
+RETROBOT_RUN_DIR=$(mktemp -d /tmp/officeagent-retrobot.XXXXXX) || {
+    echo "ℹ Retrobot: 격리 실행 디렉터리를 생성하지 못해 회고 생성을 건너뜁니다."
+    exit 0
+}
+
+COMMIT_SHA=$(git log -1 --format=%H 2>/dev/null)
+COMMITTED_AT=$(git log -1 --format=%cI 2>/dev/null)
+COMMIT_SHORTSTAT=$(LC_ALL=C git diff-tree --shortstat --no-commit-id --root "$COMMIT_SHA" 2>/dev/null | sed -n '$p')
+if [ -z "$COMMIT_SHORTSTAT" ]; then
+    COMMIT_SHORTSTAT="0 files changed"
+fi
+
 echo "🤖 Retrobot: 회고 생성 중..."
 
 {
     cat "$SKILL_PATH"
     printf "\n\n## 이번 실행 입력\n\n"
     printf "### 최신 커밋\n\n"
-    git show -1 --format=fuller --stat --name-status --no-renames
+    printf "full_sha=%s\n" "$COMMIT_SHA"
+    printf "committed_at=%s\n" "$COMMITTED_AT"
+    printf "aggregate_shortstat=%s\n" "$COMMIT_SHORTSTAT"
+    printf "\n### 이 실행의 추가 출력 계약\n\n"
+    printf '%s\n' "- 요약의 기준 커밋 값은 위 full_sha 전체만 사용한다."
+    printf '%s\n' "- SKILL.md의 heading을 순서대로 한 번씩만 사용한다."
+    printf '%s\n' "- URL, link, image, HTML, code fence와 credential을 출력하지 않는다."
     if [ -f "$WORKLOG_PATH" ]; then
         printf "\n\n### 지원자 작업 로그\n\n"
         cat "$WORKLOG_PATH"
     fi
-} | codex exec \
-    --ephemeral \
-    --sandbox read-only \
-    --skip-git-repo-check \
-    -c 'approval_policy="never"' \
-    - >"$TEMP_PATH" 2>"$ERROR_LOG"
+} | "$PYTHON_BIN" "$GUARD_PATH" \
+    --codex "$CODEX_BIN" \
+    --run-directory "$RETROBOT_RUN_DIR" \
+    --output "$TEMP_ABS_PATH" \
+    --commit-sha "$COMMIT_SHA" \
+    --timeout-seconds 300 \
+    2>/dev/null
 CODEX_STATUS=$?
 
-if [ "$CODEX_STATUS" -ne 0 ] || [ ! -s "$TEMP_PATH" ]; then
-    rm -f "$TEMP_PATH"
-    echo "ℹ Retrobot: 생성 실패(exit ${CODEX_STATUS}). ${ERROR_LOG}를 확인하세요."
+if [ "$CODEX_STATUS" -ne 0 ] || [ ! -s "$TEMP_ABS_PATH" ]; then
+    rm -f -- "$TEMP_ABS_PATH" "$RETRO_ABS_PATH"
+    echo "ℹ Retrobot: 제한 실행 또는 출력 검증에 실패해 회고를 남기지 않습니다."
     exit 0
 fi
 
-mv "$TEMP_PATH" "$RETRO_PATH"
-
-if [ ! -f "$TIMELINE_PATH" ]; then
+TIMELINE_NEXT=$(mktemp "${REPO_ROOT}/retros/.retrobot-timeline-next.XXXXXX") || exit 0
+if [ -f "$TIMELINE_ABS_PATH" ]; then
+    TIMELINE_HAD_ORIGINAL=1
+    TIMELINE_BACKUP=$(mktemp "${REPO_ROOT}/retros/.retrobot-timeline-backup.XXXXXX") || exit 0
+    cp -p -- "$TIMELINE_ABS_PATH" "$TIMELINE_BACKUP" || exit 0
+    cp -- "$TIMELINE_ABS_PATH" "$TIMELINE_NEXT" || exit 0
+else
     {
         printf "# Retrobot 타임라인\n\n"
         printf "| 시각 (KST) | 회고 | 기준 커밋 |\n"
         printf "|---|---|---|\n"
-    } >"$TIMELINE_PATH"
+    } >"$TIMELINE_NEXT"
 fi
-
-SUBJECT=$(git log -1 --pretty=%s | tr '|' '/')
 printf "| %s | [%s](./%s) | %s |\n" \
     "$STAMP" \
     "$(basename "$RETRO_PATH")" \
     "$(basename "$RETRO_PATH")" \
-    "$SUBJECT" >>"$TIMELINE_PATH"
+    "$COMMIT_SHA" >>"$TIMELINE_NEXT"
+
+mv -- "$TEMP_ABS_PATH" "$RETRO_ABS_PATH" || exit 0
+PUBLISHED=1
+mv -- "$TIMELINE_NEXT" "$TIMELINE_ABS_PATH" || exit 0
+TIMELINE_NEXT=
 
 if ! git add -- "$RETRO_PATH" "$TIMELINE_PATH"; then
-    echo "ℹ Retrobot: 생성 파일 stage에 실패했습니다."
+    echo "ℹ Retrobot: 생성 파일 stage에 실패해 변경을 되돌립니다."
     exit 0
 fi
 
 if git commit -m "docs(retro): 자동 회고 생성 by Retrobot" \
     --no-verify -- "$RETRO_PATH" "$TIMELINE_PATH"; then
+    COMMITTED=1
     echo "✅ Retrobot: ${RETRO_PATH} 생성 및 커밋 완료"
 else
-    echo "ℹ Retrobot: 자동 회고 commit에 실패했습니다."
+    echo "ℹ Retrobot: 자동 회고 commit에 실패해 변경을 되돌립니다."
 fi

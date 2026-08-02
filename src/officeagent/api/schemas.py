@@ -7,6 +7,15 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ReadinessResponse(BaseModel):
+    """Credential-free PostgreSQL and migration readiness."""
+
+    status: str
+    migration_head: str
+    vector_version: str
+    instance_nonce: str | None = None
+
+
 class DocumentResponse(BaseModel):
     """Result of a document upload."""
 

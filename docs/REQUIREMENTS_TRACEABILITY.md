@@ -1,5 +1,8 @@
 # Requirements Traceability
 
+> 이 문서는 V1 `29a429f` rollback 기준선의 역사적 증거입니다. 현재 V2 상태는
+> [V2 Requirements Traceability](./V2_REQUIREMENTS_TRACEABILITY.md)를 따릅니다.
+
 PRD 요구를 구현·테스트·실런타임 증거에 연결한 평가자용 표입니다.
 
 아래 cache 동작의 구현 기준선은 source commit `0565fa5`이며, 바로 뒤

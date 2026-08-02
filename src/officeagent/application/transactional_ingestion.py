@@ -38,8 +38,6 @@ class CorpusWriter(Protocol):
         retrieval_threshold: float,
     ) -> IngestionResult: ...
 
-
-
 class TransactionalIngestionService:
     """Finish parser/chunk/embed work before exactly one writer call."""
 
@@ -82,9 +80,15 @@ class TransactionalIngestionService:
         """Do not reach the DB boundary unless every preparation step succeeds."""
 
         if len(content) > self._max_upload_bytes:
-            raise DocumentTooLargeError(f"Upload exceeds the {self._max_upload_bytes}-byte limit")
+            raise DocumentTooLargeError(
+                f"Upload exceeds the {self._max_upload_bytes}-byte limit"
+            )
         safe_filename = normalize_filename(filename)
-        sections = await anyio.to_thread.run_sync(extract_sections, safe_filename, content)
+        sections = await anyio.to_thread.run_sync(
+            extract_sections,
+            safe_filename,
+            content,
+        )
         chunks = _prepare_chunks(
             sections, chunk_size=self._chunk_size, overlap=self._chunk_overlap
         )
@@ -94,7 +98,9 @@ class TransactionalIngestionService:
             [chunk.text for chunk in chunks]
         )
         if len(embeddings) != len(chunks):
-            raise ValueError("Embedding provider returned a vector count different from chunks")
+            raise ValueError(
+                "Embedding provider returned a vector count different from chunks"
+            )
         return await self._corpus_writer.commit_document(
             filename=safe_filename,
             content_type=content_type or "application/octet-stream",
@@ -139,9 +145,17 @@ def _prepare_chunks(
     return tuple(chunks)
 
 
-def _prefer_whitespace_boundary(text: str, start: int, proposed_end: int, chunk_size: int) -> int:
+def _prefer_whitespace_boundary(
+    text: str,
+    start: int,
+    proposed_end: int,
+    chunk_size: int,
+) -> int:
     if proposed_end >= len(text):
         return len(text)
     minimum = start + int(chunk_size * 0.6)
-    boundary = max(text.rfind(" ", minimum, proposed_end), text.rfind("\n", minimum, proposed_end))
+    boundary = max(
+        text.rfind(" ", minimum, proposed_end),
+        text.rfind("\n", minimum, proposed_end),
+    )
     return boundary + 1 if boundary >= minimum else proposed_end

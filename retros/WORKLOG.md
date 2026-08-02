@@ -13,8 +13,8 @@
 
 ### 확인한 사실
 
-- `procloudkim/officeagent-onboarding-challenge`를 공식 템플릿에서 Private로 생성했다.
-- `serithemage` collaborator 초대를 첫 지원자 커밋 전에 전송했다.
+- `<private-repository>`를 공식 템플릿에서 Private로 생성했다.
+- `<evaluator-collaborator>` 초대를 첫 지원자 커밋 전에 전송했다.
 - 템플릿 최초 커밋만 존재하며 이 커밋은 168시간 계산에서 제외된다.
 - 로컬에는 Python 3.11/3.12, Docker, uv, Codex CLI가 설치되어 있다.
 - Codex App Server 스모크에서 `item/agentMessage/delta` 14개를 수신했고,
@@ -66,8 +66,9 @@
 
 ### 대응과 검증
 
-- 인증된 GitHub 계정의 ID와 login으로 이 리포에만
-  `227958568+procloudkim@users.noreply.github.com`을 설정했다.
+- 인증된 GitHub 계정의 ID와 login에 대응하는 repository-local identity를 사용했다.
+- author와 committer 주소는 `<github-noreply-address>`로 설정했으며 실제 주소는
+  Retrobot 입력에서 제외했다.
 - `origin/main` 이후 공개되지 않은 5개 커밋의 이메일만 재작성했다.
 - 재작성 전 복구용 로컬 ref를 만들고, 커밋 수·트리·메시지·작성자명·커밋 시각이
   모두 보존됐는지 커밋별로 비교했다.
@@ -367,3 +368,56 @@
   clean clone과 live Codex/SSE 전에는 DEC-010~012를 `PROPOSED`로 유지한다.
 - 배운 점: schema와 Docker 파일 존재보다 post-invalidation rollback과
   current-match SQL predicate가 유지보수 경제성의 직접 증거다.
+
+## 2026-08-02 — V2 최종화와 WSL/Docker 재검증
+
+### 목표
+
+- clean checkout에서 재현 가능한 PostgreSQL/pgvector V2와 credential-free 검증
+  경계를 마무리한다.
+- 최종 SHA 전에 code, test, 문서와 Retrobot 증거를 일치시킨다.
+
+### 변경과 판단
+
+- API 기본 bind를 loopback으로 제한하고 `/health/ready`는 migration head와
+  pgvector version만 반환하며 실패 세부를 숨기게 했다.
+- Codex child environment는 allowlist로 제한했다. live smoke는 repository 밖
+  workspace와 전용 disposable DB에서 `miss → exact hit → document update → miss`를
+  검증하고 답변 본문, DB URL과 data path를 receipt에서 제외하도록 TDD했다.
+- Docker test image는 필요한 smoke script만 copy하고 Node, Codex, credential env와
+  `.codex` 부재 gate를 유지했다.
+- Retrobot은 commit 제목·파일명·작성자 없이 SHA, commit 시각과 aggregate shortstat만
+  전송한다. child env는 neutral HOME과 실제 auth용 `CODEX_HOME`, credential-free
+  proxy·certificate 경로만 허용하고 user config/rules와 shell tool을 끈다.
+- Codex 실행 전 prompt의 환경 민감 값·identity·credential URI를 검사한다. 실행은
+  300초로 제한하고 생성물은 publish 전에 64 KiB, UTF-8, heading 순서, commit SHA와
+  active Markdown·HTML·URL·이메일·credential 패턴을 fail-closed로 검사한다. 실패하면
+  temp/output/timeline stage를 남기지 않는다.
+
+### 검증
+
+- WSL2 Docker client/server, Compose와 `hello-world`를 확인했다.
+- current worktree의 Docker suite → `127 passed in 10.07s`.
+- current worktree의 host suite → `109 passed, 18 expected skips in 35.01s`.
+- Ruff, `uv lock --check`, Compose config, hook syntax와 diff check를 통과했다.
+- Codex를 호출하지 않는 readiness-only smoke의 실제 Uvicorn `/health/ready`는
+  HTTP `200`, `ready`, migration head `0001`, pgvector `0.8.6`을 반환했고 종료 뒤
+  `officeagent_test_%` database 잔존 수는 `0`이었다.
+- 최종 감사 runner는 ignored `.env`를 배제하고 local database target만 allowlist하며,
+  Codex workspace basename을 고정하고 disposable root containment를 검증한다.
+- Retrobot의 현재 고정 prompt 입력에서 이메일, GitHub URL과 identity-bearing role
+  값이 없음을 검사하는 회귀를 추가하면서 test image에서 입력과 self-contract 파일이
+  빠진 두 번의 Docker collection RED를 관측했다. 광범위한 디렉터리 COPY 대신
+  필요한 파일만 exact allowlist해 suite를 복구했다. 이 회귀는 provider-side
+  privacy나 미래 WORKLOG의 무조건적 안전을 증명하지 않는다.
+- fresh-run 귀속용 64-hex instance nonce는 설정된 감사 실행에서만 readiness에
+  echo하며, 기본 3필드 응답과 readiness-only receipt는 그대로 유지한다.
+
+### 남은 경계
+
+- 실제 Codex HTTP/SSE live smoke는 sample fixture context의 외부 전송 명시 승인
+  대기라 `BLOCKED`다. 승인된 current-SHA 실행 전 live `VERIFIED`를 주장하지 않는다.
+- Retrobot guard 집중 계약은 `41 passed`지만 실제 post-commit Codex 호출·자동 commit은
+  아직 실행하지 않았다. 인증에는 실제 `CODEX_HOME` 접근이 필요하며 auth 자체의
+  provider/CLI 경계는 이 로컬 guard가 증명하지 않는다.
+- clean checkout, remote parity와 final recorder/audit은 최종 commit 뒤 실행한다.

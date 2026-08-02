@@ -2,9 +2,9 @@
 
 | 항목 | 내용 |
 |---|---|
-| Status | `PROPOSED` — V2 composition and local Docker `48 passed` exist; current-SHA, remote parity and actual Codex/SSE are pending |
+| Status | `PROPOSED` — 구현 evidence는 `PARTIAL`; 변동 상태는 [V2 Traceability](../V2_REQUIREMENTS_TRACEABILITY.md)가 소유 |
 | Date | 2026-07-30 |
-| Baseline | V1 `29a429f16616ff63dd6ef175b870ec042be10e71` |
+| Baseline | V1 `main` rollback baseline; exact locator는 [V2 Traceability](../V2_REQUIREMENTS_TRACEABILITY.md)가 소유 |
 | Target | PostgreSQL 17.10 + pgvector 0.8.6 |
 
 ## Context
@@ -27,9 +27,8 @@ V2는 PostgreSQL 17.10과 pgvector 0.8.6을 유일한 영속 계층으로 사용
 unit-of-work port로 교체한다.
 
 G2의 Compose/schema/migration 위에 G3 `CorpusStore`, API composition과 P0
-offline path를 현재 로컬 워크트리에 구현했다. Docker suite `48 passed`는
-dirty-worktree 영수증이며 actual Codex/SSE가 아니다. 아래 수용 테스트와
-current-SHA evidence가 모두 생길 때만 Status를
+offline path를 구현했다. 현재 검증 상태는 V2 Traceability에서만 판정한다.
+아래 수용 테스트와 current-SHA evidence가 모두 생길 때만 Status를
 `Accepted — VERIFIED`로 전환하고 ADR-0002를 `SUPERSEDED by ADR-0004`로
 표시한다. 그전까지 ADR-0002는 V1 제품 정본이다.
 
@@ -40,7 +39,8 @@ current-SHA evidence가 모두 생길 때만 Status를
 - **What**: PostgreSQL+pgvector, Psycopg 3, numbered SQL과 digest-pinned Compose를
   G2 infrastructure로 채택했다.
 - **How**: checksum ledger, forward-prefix 검사, advisory lock, migration별 rollback,
-  database-per-test로 `0001` apply/re-run/drift/history/failure/concurrency를 검증했다.
+  migration test별 disposable database로 `0001` apply/re-run/drift/history/failure/concurrency를
+  검증했다. 전체 suite runner는 suite당 temporary database 하나를 사용한다.
 - **Trade-off**: Docker와 migration 운영비가 추가되고 HA/PITR, clean-clone 및
   actual Codex/SSE 증거는 아직 제공하지 않는다.
 - **배운 점**: 측정하지 않은 성능 우위보다 진실원천과 failure surface를 줄이는
@@ -80,7 +80,7 @@ LLM 실행 중 corpus가 바뀐 경우 completed answer의 cache write를 건너
 race guard다.
 
 
-## P0 addendum — versioned cache and prompt boundary (PROPOSED)
+## P0 addendum — versioned cache and prompt boundary (`PARTIAL`)
 
 - `answer_cache`의 `prompt_version`, `embedding_version`, `retrieval_version`은
   cache identity의 일부다. active exact/similar hit는 세 값이 현재 설정과 모두
@@ -91,7 +91,8 @@ race guard다.
 - citation은 server-generated retrieval provenance다. model answer의 문장별 근거
   검증이나 model-use subset의 verified claim이 아니다.
 - V2 offline integration에서 double은 LLM과 embedding만 허용한다. PostgreSQL,
-  migration, pgvector, parser, HTTP/SSE와 cache transaction은 실제 구현을 쓴다.
+  migration, pgvector, parser와 cache transaction은 실제 구현을 쓰고 HTTP/SSE는
+  in-process FastAPI ASGI 계약을 검증한다.
 - Compose test container에는 Codex/Node/API key/.codex mount를 넣지 않으며 이
   경계의 runtime assertion도 G3/G4 evidence에 포함한다.
 - LLM structured output은 별도 spike의 수용 조건, failure modes와 current-SHA
@@ -103,10 +104,12 @@ race guard다.
 - **Why**: configuration drift와 delimiter ambiguity가 cache correctness와 prompt
   boundary를 약화시킬 수 있다.
 - **What**: three-version cache identity와 JSON envelope를 구현했다.
-- **How**: real PostgreSQL integration과 breakout/version-mismatch regression을 로컬 Docker에서 실행했다.
+- **How**: real PostgreSQL integration과 breakout/version-mismatch regression을
+  자동화했다. 실행 evidence는 V2 Traceability가 소유한다.
 - **Trade-off**: cache reuse가 감소하고 implementation/test surface가 늘어난다.
 - **배운 점**: schema field 존재는 policy enforcement 증거가 아니며 lookup/write와
   current-SHA integration을 함께 검증해야 한다.
+
 ## Retrieval and cache decision
 
 - `vector(384)` exact cosine distance를 사용한다. V1 embedding dimension을
@@ -137,8 +140,9 @@ V1 branch 또는 forward-fix로 수행한다.
 
 ## Docker boundary
 
-Docker는 PostgreSQL/pgvector, migration, offline integration test와 CI만
-소유한다. API와 실제 Codex App Server는 host에서 실행한다. Compose는 target
+Docker는 PostgreSQL/pgvector, migration과 offline integration test를 소유한다.
+CI workflow는 `PLANNED`이며 API와 실제 Codex App Server는 host에서 실행한다.
+Compose는 target
 architecture manifest digest, loopback DB port, named volume, `pg_isready`
 healthcheck와 `service_healthy` dependency를 사용한다.
 
@@ -196,7 +200,7 @@ Status 승격에는 다음 현재-SHA 증거가 모두 필요하다.
 - LLM 중 corpus 변경 시 stale cache save skip
 - migration empty DB/re-run/checksum mismatch/failure rollback
 - `/health/ready`의 DB/migration/vector 확인
-- clean `docker compose run --rm test`
+- clean `docker compose run --build --rm test`
 - current V2 HEAD의 실제 Codex App Server incremental SSE smoke
 - README/Architecture/Traceability와 code claim parity
 

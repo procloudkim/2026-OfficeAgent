@@ -1,8 +1,12 @@
 # ADR-0003: Codex App Server와 SSE 스트리밍
 
+> 증거 범위: V1의 실제 Codex smoke는 `VERIFIED`, V2의 live incremental SSE는
+> `PARTIAL`입니다. V2의 변동 evidence는
+> [V2 Traceability](../V2_REQUIREMENTS_TRACEABILITY.md)만 소유합니다.
+
 | 항목 | 내용 |
 |---|---|
-| Status | Accepted — implemented and live-smoked |
+| Status | V1 `Accepted`; V2 overlay는 live 수용 evidence 전까지 `PROPOSED` |
 | Date | 2026-07-28 |
 
 ## Why

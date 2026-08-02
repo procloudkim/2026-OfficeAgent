@@ -20,6 +20,7 @@ from officeagent.application.question_answering import (
 )
 from officeagent.application.transactional_ingestion import TransactionalIngestionService
 from officeagent.domain.models import CacheVersions
+from officeagent.infrastructure.migrations import PostgresReadinessProbe
 from officeagent.infrastructure.postgres_corpus_store import PostgresCorpusStore
 from tests.helpers import FakeLlmGateway, make_text_pdf
 
@@ -131,6 +132,7 @@ def _build_services() -> tuple[ServiceContainer, FakeLlmGateway, CacheVersions]:
             cache_versions=cache_versions,
             corpus_store=corpus,
         ),
+        readiness=PostgresReadinessProbe(DATABASE_URL),
     )
     return services, llm, cache_versions
 
@@ -150,7 +152,7 @@ async def _upload(
 
 async def test_http_ingestion_uses_real_txt_pdf_parser_migration_and_postgres() -> None:
     assert DATABASE_URL is not None
-    services, _, _ = _build_services()
+    services, llm, _ = _build_services()
     app = create_app(services)
     pdf = make_text_pdf("Deployment approval requires two reviewers.")
 
@@ -177,6 +179,7 @@ async def test_http_ingestion_uses_real_txt_pdf_parser_migration_and_postgres() 
                 content="교육 복지 한도는 연 200만원입니다.".encode(),
                 content_type="text/plain",
             )
+            ready_response = await client.get("/health/ready")
 
     assert text_response.status_code == 201
     assert pdf_response.status_code == 201
@@ -187,6 +190,13 @@ async def test_http_ingestion_uses_real_txt_pdf_parser_migration_and_postgres() 
     assert pdf_response.json()["chunk_count"] >= 1
     assert unchanged_response.json()["change"] == "unchanged"
     assert unchanged_response.json()["document_version"] == 1
+    assert ready_response.status_code == 200
+    assert ready_response.json() == {
+        "status": "ready",
+        "migration_head": "0001",
+        "vector_version": "0.8.6",
+    }
+    assert llm.prompts == []
 
     with psycopg.connect(DATABASE_URL) as connection:
         documents = connection.execute(

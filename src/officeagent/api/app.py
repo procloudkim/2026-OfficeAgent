@@ -18,10 +18,12 @@ from officeagent.api.schemas import (
     CitationResponse,
     DocumentResponse,
     QuestionRequest,
+    ReadinessResponse,
 )
-from officeagent.application.ingestion import DocumentTooLargeError, IngestionService
+from officeagent.application.ingestion import DocumentIngestion, DocumentTooLargeError
 from officeagent.application.question_answering import QuestionAnsweringService
 from officeagent.domain.models import AnswerEvent, AnswerEventType
+from officeagent.domain.ports import ReadinessProbe
 from officeagent.infrastructure.parsers import EmptyDocumentError, UnsupportedDocumentError
 
 logger = logging.getLogger(__name__)
@@ -31,8 +33,10 @@ logger = logging.getLogger(__name__)
 class ServiceContainer:
     """Explicit application dependencies, replaceable in tests."""
 
-    ingestion: IngestionService
+    ingestion: DocumentIngestion
     questions: QuestionAnsweringService
+    readiness: ReadinessProbe
+    readiness_instance_nonce: str | None = None
 
 
 def create_app(services: ServiceContainer | None = None) -> FastAPI:
@@ -60,6 +64,34 @@ def create_app(services: ServiceContainer | None = None) -> FastAPI:
         """Return process liveness without touching model or database state."""
 
         return {"status": "ok"}
+
+    @app.get(
+        "/health/ready",
+        response_model=ReadinessResponse,
+        response_model_exclude_none=True,
+        tags=["health"],
+    )
+    async def readiness() -> ReadinessResponse:
+        """Verify PostgreSQL, migration head, and pgvector without touching Codex."""
+
+        active_services = _services(app)
+        try:
+            readiness_status = await active_services.readiness.check()
+        except Exception as exc:
+            logger.warning(
+                "Readiness check failed",
+                extra={"error_type": type(exc).__name__},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service is not ready",
+            ) from None
+        return ReadinessResponse(
+            status="ready",
+            migration_head=readiness_status.migration_head,
+            vector_version=readiness_status.vector_version,
+            instance_nonce=active_services.readiness_instance_nonce,
+        )
 
     @app.post(
         "/v1/documents",

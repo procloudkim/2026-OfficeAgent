@@ -5,14 +5,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from functools import partial
 from pathlib import Path
 
+import anyio
 import psycopg
 
-from officeagent.infrastructure.settings import Settings
+from officeagent.domain.models import ReadinessStatus
+from officeagent.infrastructure.settings import MAX_READINESS_TIMEOUT_SECONDS, Settings
 
 MIGRATION_LOCK_KEY = 4_732_838_836_560_323_702
 MIGRATION_NAME = re.compile(r"^(?P<version>\d{4})_[a-z0-9][a-z0-9_]*\.sql$")
@@ -212,12 +216,57 @@ def apply_migrations(
 def inspect_migrations(
     database_url: str,
     migrations_path: Path | None = None,
+    *,
+    connect_timeout_seconds: int | None = None,
+    statement_timeout_ms: int | None = None,
 ) -> MigrationReport:
     """Verify migration head and runtime versions without changing the database."""
 
     migrations = discover_migrations(migrations_path)
-    with psycopg.connect(database_url, autocommit=True) as conn:
+    connection_options: dict[str, object] = {}
+    if connect_timeout_seconds is not None:
+        connection_options["connect_timeout"] = connect_timeout_seconds
+    if statement_timeout_ms is not None:
+        connection_options["options"] = f"-c statement_timeout={statement_timeout_ms}"
+    with psycopg.connect(database_url, autocommit=True, **connection_options) as conn:
         return _build_report(conn, migrations, ())
+
+
+class PostgresReadinessProbe:
+    """Inspect PostgreSQL migration and pgvector state without changing it."""
+
+    def __init__(self, database_url: str, timeout_seconds: float = 5.0) -> None:
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(timeout_seconds)
+        ):
+            raise ValueError("readiness timeout must be a finite number")
+        if timeout_seconds <= 0:
+            raise ValueError("readiness timeout must be positive")
+        if timeout_seconds > MAX_READINESS_TIMEOUT_SECONDS:
+            raise ValueError(
+                f"readiness timeout must be at most {MAX_READINESS_TIMEOUT_SECONDS:g} seconds"
+            )
+        self._database_url = database_url
+        self._timeout_seconds = timeout_seconds
+
+    async def check(self) -> ReadinessStatus:
+        inspection = partial(
+            inspect_migrations,
+            self._database_url,
+            connect_timeout_seconds=max(1, math.ceil(self._timeout_seconds)),
+            statement_timeout_ms=max(1, math.ceil(self._timeout_seconds * 1_000)),
+        )
+        with anyio.fail_after(self._timeout_seconds):
+            report = await anyio.to_thread.run_sync(
+                inspection,
+                abandon_on_cancel=True,
+            )
+        return ReadinessStatus(
+            migration_head=report.migration_head,
+            vector_version=report.vector_version,
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

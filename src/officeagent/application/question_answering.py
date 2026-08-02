@@ -44,7 +44,6 @@ def build_retrieval_version(
     )
 
 
-
 class QuestionAnsweringService:
     """Coordinate cache lookup, vector retrieval, LLM deltas, and citations."""
 
@@ -223,6 +222,8 @@ class QuestionAnsweringService:
             cache_written=cache_written,
             cache_skip_reason=cache_skip_reason,
         )
+
+
 def normalize_question(question: str) -> str:
     """Normalize harmless lexical variation for exact-cache lookup."""
 

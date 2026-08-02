@@ -89,6 +89,14 @@ class RetrievalSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class ReadinessStatus:
+    """Credential-free database readiness facts exposed by the API."""
+
+    migration_head: str
+    vector_version: str
+
+
+@dataclass(frozen=True, slots=True)
 class Citation:
     """Stable, reader-facing evidence pointer."""
 

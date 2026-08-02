@@ -16,7 +16,7 @@ from officeagent.application.transactional_ingestion import TransactionalIngesti
 from officeagent.domain.models import CacheVersions
 from officeagent.infrastructure.codex_app_server import CodexAppServerGateway
 from officeagent.infrastructure.embeddings import FastEmbedEmbeddingProvider
-from officeagent.infrastructure.migrations import apply_migrations
+from officeagent.infrastructure.migrations import PostgresReadinessProbe, apply_migrations
 from officeagent.infrastructure.postgres_corpus_store import PostgresCorpusStore
 from officeagent.infrastructure.settings import Settings, get_settings
 
@@ -72,4 +72,9 @@ async def build_services(settings: Settings | None = None) -> ServiceContainer:
             cache_versions=cache_versions,
             corpus_store=corpus,
         ),
+        readiness=PostgresReadinessProbe(
+            active_settings.database_url,
+            timeout_seconds=active_settings.readiness_timeout_seconds,
+        ),
+        readiness_instance_nonce=active_settings.readiness_instance_nonce,
     )

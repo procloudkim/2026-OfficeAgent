@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+import officeagent.infrastructure.codex_app_server as codex_module
 from officeagent.infrastructure.codex_app_server import (
     AppServerSession,
     CodexAppServerGateway,
@@ -253,3 +254,64 @@ async def test_server_action_request_is_rejected_without_retry() -> None:
     with pytest.raises(CodexAppServerToolUseError):
         await _collect(_gateway(factory))
     assert len(factory.created) == 1
+
+
+async def test_child_process_receives_only_allowlisted_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    allowed = {
+        "PATH": "/safe/bin",
+        "HOME": "/safe/home",
+        "CODEX_HOME": "/safe/codex",
+        "LANG": "C.UTF-8",
+        "TMPDIR": "/safe/tmp",
+        "SSL_CERT_FILE": "/safe/cert.pem",
+        "HTTPS_PROXY": "http://safe-proxy.invalid",
+        "NO_PROXY": "127.0.0.1",
+    }
+    excluded = {
+        "OPENAI_API_KEY": "openai-secret",
+        "GITHUB_TOKEN": "github-secret",
+        "AWS_SECRET_ACCESS_KEY": "aws-secret",
+        "OFFICEAGENT_DATABASE_URL": "postgresql://user:secret@db/officeagent",
+    }
+    for name, value in {**allowed, **excluded}.items():
+        monkeypatch.setenv(name, value)
+
+    captured: dict[str, Any] = {}
+    sentinel = object()
+
+    async def fake_create_subprocess_exec(*args: object, **kwargs: object) -> object:
+        captured["args"] = args
+        captured.update(kwargs)
+        return object()
+
+    def fake_session(
+        process: object,
+        *,
+        notification_queue_size: int,
+    ) -> object:
+        captured["process"] = process
+        captured["notification_queue_size"] = notification_queue_size
+        return sentinel
+
+    monkeypatch.setattr(
+        codex_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(codex_module, "_SubprocessAppServerSession", fake_session)
+    gateway = CodexAppServerGateway(
+        Settings(data_dir=tmp_path),
+        repository_root=tmp_path,
+    )
+
+    session = await gateway._create_subprocess_session()
+
+    assert session is sentinel
+    child_environment = captured["env"]
+    assert isinstance(child_environment, dict)
+    assert {name: child_environment[name] for name in allowed} == allowed
+    assert set(child_environment) <= codex_module.CODEX_CHILD_ENV_ALLOWLIST
+    assert not set(excluded) & set(child_environment)

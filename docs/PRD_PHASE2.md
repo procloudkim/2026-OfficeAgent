@@ -2,11 +2,11 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 상태 | `DRAFT` |
-| 기준선 | V1 `29a429f16616ff63dd6ef175b870ec042be10e71` |
+| 설계 수명주기 | `BASELINE` — 구현·검증 상태는 V2 Traceability가 소유 |
+| 기준선 | V1 `main` rollback baseline; exact locator는 V2 Traceability가 소유 |
 | 작업 브랜치 | `feat/v2-postgres-pgvector-compose` |
 | 목표 | PostgreSQL+pgvector 단일 영속 계층과 재현 가능한 DB/테스트 실행 경계 |
-| 증거 경계 | 이 문서는 설계 초안이며 구현·검증 완료를 주장하지 않는다 |
+| 증거 경계 | 구현·완료 주장은 [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md)의 evidence에만 연결한다 |
 
 ## 1. 문제와 목표
 
@@ -108,36 +108,36 @@ revision이 시작 revision과 같을 때만 cache를 저장한다. 달라졌다
 
 ### 3.5 Docker와 CI
 
-- PostgreSQL/pgvector, migration, offline integration test와 CI만 Docker 책임으로
-  둔다.
+- PostgreSQL/pgvector, migration과 offline integration test를 Docker 책임으로
+  둔다. CI workflow는 별도 `PLANNED` 범위다.
 - API와 실제 Codex App Server는 host에서 실행한다.
 - Compose DB는 loopback-only port, named volume, `pg_isready` healthcheck를
   사용한다.
-- `docker compose run --rm test` 한 줄이 DB readiness, migration, subscription-
+- `docker compose run --build --rm test` 한 줄이 DB readiness, migration, subscription-
   free pytest를 모두 수행한다.
-- CI는 lock check, Ruff, offline test, Compose config/build, DB/migration,
-  integration test, readiness와 claim 검사를 수행한다. image publish와 외부
-  deployment는 하지 않는다.
+- 향후 CI는 lock check, Ruff, offline test, Compose config/build, DB/migration,
+  integration test, readiness와 claim 검사를 수행한다. 현재 repository에는 CI
+  workflow가 없으며 image publish와 외부 deployment도 비목표다.
 
 ### 3.6 관찰 가능성과 개인정보 경계
 
-Structured log에는 `request_id`, DB/retrieval/cache 시간, cache match, Codex
-first-delta 시간을 기록한다. 업로드 문서 원문, 질문 본문, credential은 로그,
-Git, image, CI cache/artifact에 포함하지 않는다.
+Structured timing log는 `PLANNED`다. 도입 시 `request_id`, DB/retrieval/cache 시간,
+cache match, Codex first-delta만 기록하고 업로드 문서 원문, 질문 본문, credential은
+로그, Git, image, CI cache/artifact에 포함하지 않는다.
 
 ## 4. 자동화 수용 조건
 
 | ID | 수용 조건 | 현재 상태 |
 |---|---|---|
-| `TEST-01` | 실제 TXT/PDF HTTP upload → parser → ready document와 pgvector chunk 저장, revision 증가, same-byte no-op | `DRAFT` |
-| `TEST-02` | 한국어 3문서 fixture에서 실제 `<=>` query top-k/citation/score, no-evidence LLM skip | `DRAFT` |
-| `TEST-03` | exact/similar hit, CREATED/UPDATED/UNCHANGED, dependency·similarity invalidation과 config fallback | `DRAFT` |
-| `TX-ROLLBACK` | chunk/vector 실패 시 document/cache/revision까지 전체 rollback, 이전 ready corpus 보존 | `DRAFT` |
-| `TX-CONCURRENCY` | 동일 문서 직렬화, 다른 문서 revision 일관성 | `DRAFT` |
-| `CACHE-RACE` | LLM 중 corpus 변경 시 stale answer cache 저장 방지 | `DRAFT` |
-| `MIGRATION` | empty DB, 재실행, checksum mismatch, 실패 rollback | `DRAFT` |
-| `SSE` | 첫 delta가 completed보다 먼저 전달되고 현재 V2 HEAD에서 실제 Codex live smoke | `DRAFT` |
-| `CLEAN-RUN` | clean checkout에서 README DB/migration/API/test/readiness 절차 성공 | `DRAFT` |
+| `TEST-01` | in-process FastAPI ASGI TXT/PDF upload → parser → ready document와 pgvector chunk 저장, revision 증가, same-byte no-op | `PARTIAL` |
+| `TEST-02` | 한국어 3문서 fixture에서 실제 `<=>` query top-k/citation/score, no-evidence LLM skip | `PARTIAL` |
+| `TEST-03` | exact/similar hit, CREATED/UPDATED/UNCHANGED, dependency·similarity invalidation과 config fallback | `PARTIAL` |
+| `TX-ROLLBACK` | chunk/vector 실패 시 document/cache/revision까지 전체 rollback, 이전 ready corpus 보존 | `PARTIAL` |
+| `TX-CONCURRENCY` | 동일 문서 직렬화, 다른 문서 revision 일관성 | `PARTIAL` |
+| `CACHE-RACE` | LLM 중 corpus 변경 시 stale answer cache 저장 방지 | `PARTIAL` |
+| `MIGRATION` | empty DB, 재실행, checksum mismatch, 실패 rollback | `PARTIAL` |
+| `SSE` | 첫 delta가 completed보다 먼저 전달되고 현재 V2 HEAD에서 실제 Codex live smoke | `PARTIAL` |
+| `CLEAN-RUN` | clean checkout에서 README DB/migration/API/test/readiness 절차 성공 | `MISSING` |
 
 ## 5. 비목표
 
@@ -151,7 +151,7 @@ Git, image, CI cache/artifact에 포함하지 않는다.
 
 ## 6. 릴리스·중단 경계
 
-- V1 `main`의 `29a429f`를 rollback 기준선으로 보존한다.
+- V1 `main`을 rollback 기준선으로 보존한다.
 - 공식 세 경로와 transaction rollback이 실패하면 V2 merge 준비를 중단한다.
 - clean run, 실제 Codex/SSE, 문서–코드 정합성 중 하나라도 실패하면 V2를
   `main`에 merge하지 않는다.
@@ -160,6 +160,6 @@ Git, image, CI cache/artifact에 포함하지 않는다.
 ## 7. 결정 상태
 
 PostgreSQL 17.10 + pgvector 0.8.6, exact cosine, 빈 V2 DB, host Codex와
-DB/test-only Docker 범위는 승인된 결정이다. 이 PRD의 구현 상태는 현재
-`DRAFT`이며, 각 claim은 연결된 코드와 현재 SHA의 테스트 영수증이 생길 때만
-`IMPLEMENTED` 또는 `VERIFIED`로 전환한다.
+DB/test-only Docker 범위는 선택되어 `PARTIAL` 구현됐다. DEC-010~012의 decision
+lifecycle은 수용 evidence가 모두 충족될 때까지 `PROPOSED`를 유지한다. 각 claim의
+최신 상태는 `docs/V2_REQUIREMENTS_TRACEABILITY.md`만 관리한다.

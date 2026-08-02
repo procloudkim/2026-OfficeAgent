@@ -13,6 +13,7 @@ from officeagent.domain.models import (
     Citation,
     DocumentRecord,
     DocumentUpsertResult,
+    ReadinessStatus,
     RetrievalSnapshot,
     SearchHit,
 )
@@ -34,6 +35,13 @@ class EmbeddingProvider(Protocol):
 
     async def embed_query(self, text: str) -> list[float]:
         """Embed a search query."""
+
+
+class ReadinessProbe(Protocol):
+    """Verify product dependencies without invoking the LLM."""
+
+    async def check(self) -> ReadinessStatus:
+        """Return credential-free readiness facts or raise on failure."""
 
 
 class VectorStore(Protocol):
@@ -104,6 +112,7 @@ class MetadataStore(Protocol):
     async def invalidate_all_cache(self) -> int:
         """Invalidate all entries after corpus expansion."""
 
+
 class RevisionAwareCorpusStore(Protocol):
     """Cache and retrieval port backed by one revisioned corpus transaction model."""
 
@@ -136,7 +145,6 @@ class RevisionAwareCorpusStore(Protocol):
         expected_revision: int,
     ) -> CacheWriteResult:
         """Write only if the current corpus revision still matches."""
-
 
 
 class LlmGateway(Protocol):

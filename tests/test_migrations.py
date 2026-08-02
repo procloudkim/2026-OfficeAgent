@@ -17,6 +17,7 @@ from officeagent.infrastructure.migrations import (
     MigrationHistoryError,
     apply_migrations,
     default_migrations_path,
+    inspect_migrations,
 )
 from officeagent.infrastructure.test_runner import temporary_database
 
@@ -83,6 +84,8 @@ def test_applied_migration_checksum_change_fails_closed(
 
     with pytest.raises(MigrationChecksumMismatch):
         apply_migrations(empty_database_url, migrations)
+    with pytest.raises(MigrationChecksumMismatch):
+        inspect_migrations(empty_database_url, migrations)
 
 
 def test_failing_migration_rolls_back_schema_and_ledger(
