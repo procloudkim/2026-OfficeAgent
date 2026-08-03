@@ -24,6 +24,7 @@ V1의 SQLite metadata/cache와 Chroma vector mutation은 하나의 transaction�
 - prompt/embedding/retrieval version이 결합된 answer cache
 - exact-SHA lock·host·Docker·readiness를 검증하는 GitHub `quality-gates`
 - 입력 원문을 기록하지 않는 request-scoped structured timing receipt
+- hash·승인 상태와 split 격리를 가진 합성 gold evaluator
 
 ### How
 
@@ -256,6 +257,25 @@ sink 전달은 best-effort라 delivery exact-once를 보장하지 않습니다. 
 body validation 또는 upload `file.read()`처럼 application service 진입 전에 실패한
 작업은 이 receipt 범위 밖입니다.
 
+### Quality evaluation 경계
+
+`evals/gold/v1` manifest는 case JSONL과 split별 합성 문서 bytes를 SHA-256으로
+고정하고, dataset-relative path를 사용한 portable dataset hash를 계산합니다.
+`approval.json`은 그 hash에 사용자 채택을 결합하지만 현재는 `pending`입니다. 공개된
+holdout은 개발 중 직접 보지 않는 process 분리일 뿐 blind benchmark가 아닙니다.
+
+실제 runner는 선택한 split의 문서만 제품 ingestion에 넣고 같은 product question
+service를 호출합니다. loopback `postgres` admin에서
+`officeagent_eval_<split>_<12hex>` database만 생성하고 migration 뒤 네 product
+table과 corpus revision이 비었는지 확인하며 finally에서 DB를 삭제합니다. remote
+host, product DB 이름, 다른 split 이름과 libpq service target은 실행 전에 거부합니다.
+
+retrieval hit·MRR은 server citation 순위를, answer/citation claim coverage는 사람이
+적은 alias의 Unicode-normalized 포함 여부를, abstention은 표준 no-evidence text,
+`grounded=false`와 빈 citation을 함께 검사합니다. 이 결정론적 lexical oracle은
+semantic entailment·NLI·factuality가 아니며, 실제 FastEmbed/PostgreSQL/Codex run은
+아직 실행 증거가 없습니다.
+
 ## 9. 검증과 상태
 
 공식 offline suite와 hosted `quality-gates`의 불변 경계는 실제
@@ -275,6 +295,8 @@ embedding만 double로 교체합니다. 이 경계는 실제 Codex incremental S
 - 구조화 decoder는 answer 65,536자, raw JSON 1,048,576자, stdio line 8 MiB의
   로컬 상한을 둡니다. tokenizer 최적화나 answer 의미 검증은 제공하지 않습니다.
 - threshold `0.30`/`0.95`는 초기값이며 gold-set 최적값이라고 주장하지 않습니다.
+- gold v1은 사용자 채택 전 합성 candidate이며 공개 holdout과 lexical proxy의 한계를
+  가집니다.
 - enterprise support 또는 pgvector vendor SLA는 이 구현만으로 증명되지 않습니다.
 
 배운 점: Docker 자체보다 transaction·rollback·동시성·credential 격리를 실행

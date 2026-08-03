@@ -716,3 +716,57 @@
   source 완료 판정이나 raw 원문 변경으로 해석하지 않는다.
 - 단일 process logger이므로 delivery exact-once, 영구 보관, 분산 trace, benchmark,
   HA/PITR를 구현했다고 주장하지 않는다.
+
+## 2026-08-04 — versioned gold set과 fail-closed evaluator
+
+### Why
+
+- tokenizer·chunk·retrieval 변경을 체감으로 튜닝하면 holdout leakage와 성공 사례만
+  남길 위험이 있다. 제품 기본값을 바꾸기 전에 exact bytes, 사람 승인과 failure
+  signal을 가진 작은 품질 기준선을 먼저 만들었다.
+- answerable 질문만 두면 무근거 회피를 측정하지 못하므로 각 split에 topic-adjacent
+  `retrieval_negative`를 포함했다. 공개 파일은 blind benchmark가 아니라 iteration을
+  분리하는 process holdout으로만 표현한다.
+
+### What과 TDD
+
+- gold v1은 dev 15건과 process-holdout 15건으로 구성하고 각 split을 answerable
+  10건, retrieval-negative 5건으로 고정했다. manifest가 case와 모든 문서 digest를,
+  portable dataset hash가 manifest·case·dataset-relative document path를 결합한다.
+- `approval.json`은 exact dataset SHA에 owner와 timezone이 있는 ISO-8601 시각을
+  결합한다. 현재 hash는
+  `323edcd4591726d8ea1c8e36c4137fa2558d7b020260514eb7ea5ab6a0ac52a9`이고 승인은
+  의도적으로 `pending`이다.
+- runner는 기존 ingestion/Q&A port를 사용한다. 실제 CLI는 loopback `postgres`에서
+  split-labelled random DB만 생성하고 migration 뒤 empty corpus를 확인하며 finally로
+  삭제한다. remote·product·wrong-split·libpq service target은 fail-closed한다.
+- 최초 evaluator module 부재는 collection 3건, isolation module 부재는 collection
+  1건으로 RED를 확인했다. 냉독 뒤 malformed approval 3건과 secret-bearing runtime
+  exception 1건도 RED로 재현하고 timezone validation과 sanitized exit code `3`으로
+  GREEN 전환했다. 최종 focused suite는 `22 passed`다.
+
+### Metric·Fact check·Shower
+
+- retrieval hit/MRR은 expected filename의 첫 server citation rank를 사용한다.
+  answer/citation claim coverage는 Unicode-normalized alias 포함 검사이고 exact
+  abstention은 표준 no-evidence text, `grounded=false`, 빈 citation을 모두 요구한다.
+  semantic entailment·NLI·factuality로 부르지 않는다.
+- PostgreSQL 공식 문서에서 DB 생성은 superuser 또는 `CREATEDB`가 필요하고 extension
+  설치는 구성 요소 생성 권한 또는 trusted-extension 조건을 따른다는 점을 확인했다.
+  Python 3.11 문서의 `datetime.fromisoformat()`과 timezone-aware 결과를 승인 계약에
+  사용했다.
+- 무맥락 냉독은 pending 결론, 공개 holdout, metric oracle, DB 권한·비정상 종료,
+  외부 Codex 변동과 exit code를 지적했다. runbook에 승인 체크리스트, metric 규칙,
+  전체 split 실행, prefix residue 경고, output data와 exit `0/1/2/3` 경계를 추가했다.
+
+### 검증과 정직한 잔여
+
+- 두 split의 verify-only는 각각 15 case와 같은 dataset SHA, `pending`을 반환했다.
+  냉독 후 RED까지 반영한 최종 host 전체는 `217 passed, 18 expected skips`, canonical
+  Docker PostgreSQL/pgvector 전체는 `229 passed, 6 expected skips`였다. Ruff, lock,
+  Compose config, 문서 validator와 diff check도 통과했다.
+- 실제 FastEmbed/PostgreSQL/Codex evaluator는 실행하지 않았다. 선택된 합성 질문과
+  검색 문맥을 사용자 구독에 전송하므로 별도 실행 승인·사용자 dataset 채택 뒤
+  `--require-approved` evidence로 분리한다.
+- 이 캡슐은 product chunk/threshold를 바꾸지 않는다. pending 데이터로 기본값을
+  튜닝하거나 공개 holdout을 일반화·성능 우위 증거로 사용하지 않는다.

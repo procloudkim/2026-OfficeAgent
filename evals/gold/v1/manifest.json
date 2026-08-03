@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "dataset_version": "v1",
+  "description": "Reviewer-readable OfficeAgent quality set: 15 dev and 15 process-holdout cases.",
+  "cases": {
+    "path": "cases.jsonl",
+    "sha256": "fb6d2f0f60a74b5736f9e251015bfae6914e041750253b0671152f19bcf23cd8"
+  },
+  "documents": [
+    {
+      "split": "dev",
+      "path": "documents/dev/company-policy.txt",
+      "filename": "dev-company-policy.txt",
+      "content_type": "text/plain",
+      "sha256": "e1a04f460722a6a0ba6755cdbbf6f280955833a1871b0a447c9b01126f0d364c"
+    },
+    {
+      "split": "dev",
+      "path": "documents/dev/development-guide.md",
+      "filename": "dev-development-guide.md",
+      "content_type": "text/markdown",
+      "sha256": "3edc79322229d823f50f2a7199c7967a10ba6d3cb3b1d9dc3ddf9df745202231"
+    },
+    {
+      "split": "dev",
+      "path": "documents/dev/security-handbook.txt",
+      "filename": "dev-security-handbook.txt",
+      "content_type": "text/plain",
+      "sha256": "c7fe3fa4577587526d0aa98733c0981c976b13ce54a7d7dd467cca7bf97e25db"
+    },
+    {
+      "split": "holdout",
+      "path": "documents/holdout/incident-response.md",
+      "filename": "holdout-incident-response.md",
+      "content_type": "text/markdown",
+      "sha256": "bafe3be163df9d44706a1f127f007b350e6502c7c1bfa5d83b9e9c9eb44fec9a"
+    },
+    {
+      "split": "holdout",
+      "path": "documents/holdout/travel-procurement.txt",
+      "filename": "holdout-travel-procurement.txt",
+      "content_type": "text/plain",
+      "sha256": "e1e55b6e7d2efae4ac03baa46054684b09c1a785df9b96756f4ed219294df75e"
+    }
+  ],
+  "thresholds": {
+    "dev": {
+      "retrieval_hit_rate": 0.9,
+      "mean_reciprocal_rank": 0.8,
+      "answer_claim_coverage": 0.9,
+      "citation_claim_coverage": 0.9,
+      "abstention_accuracy": 1.0
+    },
+    "holdout": {
+      "retrieval_hit_rate": 0.9,
+      "mean_reciprocal_rank": 0.8,
+      "answer_claim_coverage": 0.9,
+      "citation_claim_coverage": 0.9,
+      "abstention_accuracy": 1.0
+    }
+  }
+}

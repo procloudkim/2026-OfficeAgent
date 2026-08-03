@@ -7,7 +7,7 @@
 | V1 rollback | `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | 최초 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
 | 제출 결론 | V2 branch 제출 `YES`; `main` merge는 수행하지 않음 |
-| 정직한 잔여 | `PROC-04`는 `PARTIAL`; C0 hosted CI는 `d86f4c4`에서 PASS, 현재 HEAD는 재검증 필요; 성능 gate는 `PLANNED` |
+| 정직한 잔여 | `PROC-04`는 `PARTIAL`; current-SHA hosted 재검증 필요; gold v1 채택·실제 Codex 평가는 `PARTIAL`; 성능 gate는 `PLANNED` |
 
 ## 이 문서를 읽는 방법
 
@@ -91,6 +91,20 @@ tests에 두며, 원문 답변·credential·전체 실행 log는 source에 복�
 | `P0-SEC-01` | container executable/env/mount/effective DB target | 없음 | `VERIFIED` |
 | `P0-PROMPT-01` | deterministic JSON serialization과 breakout | 없음 | `VERIFIED` |
 | `P0-STRUCT-01` | 한 필드 schema→plaintext projection, protocol/API/cache failure 경계 | actual live만 offline double | `VERIFIED` |
+
+### 3.1 제안 품질 평가
+
+| ID | 경계와 증거 | 상태 |
+|---|---|---|
+| `EVAL-01` | 30-case dev/process-holdout, case·문서 hash와 portable dataset SHA, exact-byte approval contract | `PARTIAL` — loader 검증 PASS, 사용자 채택 `pending` |
+| `EVAL-02` | 제품 ingestion/Q&A runner, split별 loopback disposable DB와 empty-corpus guard | `PARTIAL` — focused 22 PASS, 실제 FastEmbed/PostgreSQL/Codex run 미실행 |
+| `EVAL-03` | retrieval hit/MRR, lexical answer·citation claim coverage, exact abstention | `PARTIAL` — deterministic proxy이며 semantic entailment·NLI·factuality 아님 |
+
+dataset SHA는
+`323edcd4591726d8ea1c8e36c4137fa2558d7b020260514eb7ea5ab6a0ac52a9`이고
+`evals/gold/v1/approval.json`이 `pending`이다. 공개된 holdout은 blind benchmark가
+아니며 이 데이터로 제품 기본값을 튜닝했다고 주장하지 않는다. 실제 run은 합성 질문과
+검색 문맥을 사용자 구독의 로컬 Codex App Server에 전송하므로 CI에서 실행하지 않는다.
 
 공식 명령은 다음 한 줄입니다.
 

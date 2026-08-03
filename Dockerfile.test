@@ -17,6 +17,7 @@ RUN ! command -v node >/dev/null 2>&1 \
     && test ! -e /root/.codex
 
 COPY tests ./tests
+COPY evals ./evals
 COPY Dockerfile.test .dockerignore ./
 COPY retrobot/SKILL.md ./retrobot/
 COPY retros/WORKLOG.md ./retros/

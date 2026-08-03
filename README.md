@@ -15,6 +15,7 @@ App Server 응답을 SSE로 전달하고 문서명·버전·청크 위치를 출
 |---|---|---|---|
 | 빠른 채점 | `docker compose run --build --rm test` | exit code `0` | [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md) |
 | Hosted CI | Draft PR의 `quality-gates` 확인 | exact SHA의 check 성공 | [workflow](./.github/workflows/quality-gates.yml) |
+| 품질셋 검토 | `uv run python -m officeagent.evaluation --split dev --verify-only` | `pending`과 고정 dataset SHA | [Gold set v1](./evals/gold/v1/README.md) |
 | 제품 실행 | 아래 `제품 실행` 순서로 DB와 API 시작 | readiness `200`, upload `201` | [Evaluator Manual](./docs/EVALUATOR_MANUAL.md) |
 | 설계 검토 | transaction·SSE·cache 경계 확인 | 선택 이유와 비범위 식별 | [Architecture](./ARCHITECTURE.md) |
 | prompt/LLM 검토 | schema·decoder·실패 의미 확인 | raw JSON 비노출·invalid no-cache | [Prompt Design](./PROMPT_DESIGN.md) |
@@ -248,7 +249,28 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 | `tests/test_live_smoke.py` | disposable local DB, live citation/cache/update 전이, sanitized receipt의 offline 계약 |
 | `tests/test_validate_documentation.py` | CI action pin·순서·secret 금지와 evaluator 문서 링크·상태 drift |
 | `tests/test_timing_observability.py` | V1/V2·QA stage timing, cache/no-evidence/error/cancel, privacy와 recorder 장애 격리 |
+| `tests/test_evaluation_*.py` | gold hash·승인·split, lexical metric, product boundary와 disposable local DB 격리 |
 | 기존 V1 adapter tests | SQLite/Chroma 기준선 회귀; V2 제품 증거와 구분 |
+
+### 제안 gold set과 evaluator
+
+[`evals/gold/v1`](./evals/gold/v1/README.md)은 dev 15건과 공개된 process-holdout
+15건을 가진 합성 품질셋입니다. 각 split은 answerable 10건과 문서 주제는 가깝지만
+정답 사실이 없는 `retrieval_negative` 5건으로 구성됩니다. manifest가 case와 corpus
+bytes를 고정하고 두 split의 현재 dataset SHA는
+`323edcd4591726d8ea1c8e36c4137fa2558d7b020260514eb7ea5ab6a0ac52a9`입니다.
+
+`approval.json`은 의도적으로 `pending`입니다. 따라서 이 셋은 사용자 채택이나 blind
+benchmark가 아니며 제품 기본값을 정당화하지 않습니다. metric은 retrieval hit/MRR,
+lexical answer·citation claim coverage와 exact abstention입니다. lexical coverage는
+semantic entailment, NLI 또는 factuality 판정이 아닙니다.
+
+실제 평가 CLI는 선택한 split마다 loopback PostgreSQL에 무작위 disposable database를
+생성하고 migration 뒤 empty corpus를 확인하며 성공·실패 모두에서 삭제합니다. 실제
+run은 선택한 합성 질문과 검색 문맥을 로컬 인증 Codex App Server에 보내고 사용자
+구독을 사용합니다. CI와 이 변경의 검증은 `--verify-only`와 fake service 경계만
+실행하며 실제 Codex 평가를 수행하지 않습니다. 실행·승인 절차와 exit code는
+[Gold set v1](./evals/gold/v1/README.md)이 소유합니다.
 
 host의 빠른 unit/legacy 회귀는 DB test를 skip합니다.
 
@@ -303,7 +325,7 @@ current-SHA 실행 결과와 요구사항별 판정은
 
 - timing log는 구현했지만 benchmark·단계별 성능 gate는 아직 `PLANNED`
 - 이미지 PDF OCR, 문서 삭제 API, 사용자별 corpus, HA/PITR
-- 동일 질문 cache miss single-flight와 answer-level entailment verifier
+- 동일 질문 cache miss single-flight와 semantic answer-level entailment verifier
 
 상세 근거:
 

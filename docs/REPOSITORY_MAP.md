@@ -57,6 +57,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `src/officeagent/application/observability.py` | privacy-safe timing schema, monotonic stage timer와 best-effort JSON sink |
 | `src/officeagent/application/chunking.py` | deterministic page-safe chunks |
 | `src/officeagent/application/prompts.py` | canonical grounded prompt |
+| `src/officeagent/evaluation/` | gold integrity·metric·runner·disposable DB와 CLI |
 | `src/officeagent/domain/models.py` | framework-independent values/events |
 | `src/officeagent/domain/ports.py` | storage/embedding/LLM protocols |
 | `src/officeagent/infrastructure/parsers.py` | PDF/TXT/MD extraction |
@@ -91,6 +92,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `tests/test_live_smoke.py` | disposable DB fail-closed, G7 citation/miss→hit→update→miss, proxy·receipt offline contract |
 | `tests/test_validate_documentation.py` | CI action SHA·candidate ref·금지 marker와 문서 drift 검사 |
 | `tests/test_timing_observability.py` | V1/V2·QA timing path, privacy, cancellation과 sink-failure 계약 |
+| `tests/test_evaluation_*.py` | dataset hash·승인·split, lexical metric, runner와 local disposable DB fail-closed 계약 |
 | `tests/test_prompts.py` | client-controlled prompt metadata attribute boundary |
 | `tests/test_retrobot_hook.py` | hook 입력 metadata·timeline cell·explicit stage/commit 구조 계약 |
 | `tests/test_retrobot_context.py` | 최신 날짜 H2 선택·후속 H2 차단·8 KiB 경계 계약 |
@@ -118,6 +120,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `pyproject.toml`, `uv.lock` | Python build, locked dependencies, tool config |
 | `.gitignore`, `.gitattributes` | generated exclusion, cross-platform LF contract |
 | `sample-docs/company-policy.txt`, `development-guide.md` | manual/live fixtures |
+| `evals/gold/v1/` | hash-pinned synthetic dev/process-holdout corpus·cases와 pending adoption |
 | `retros/WORKLOG.md` | 지원자가 확인한 사실·실패·전환 |
 | `retros/TIMELINE.md`, `retros/*_retro.md` | guard-validated Retrobot 출력; 사실 주장은 지원자가 재검토할 Track C evidence |
 
