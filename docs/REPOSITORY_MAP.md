@@ -33,6 +33,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `docs/adr/ADR-0002-*.md` | V1 SQLite/Chroma 저장소·검색·캐시 기준선 |
 | `docs/adr/ADR-0003-*.md` | Codex·SSE·retry 결정, 역사적 V1과 current V2 live evidence |
 | `docs/adr/ADR-0004-*.md` | V2 PostgreSQL/pgvector product overlay와 승격 조건 |
+| `docs/adr/ADR-0005-*.md` | structured Codex answer의 incremental plaintext·failure 계약 |
 | `docs/verification/2026-07-28.md` | sanitized command receipt |
 | `docs/verification/2026-07-30-v2-g0.md` | V2 R0/G0 Docker·V1 preflight sanitized receipt |
 | `docs/verification/2026-07-30-v2-g2.md` | V2 migration/Compose/test sanitized runtime receipt |
@@ -58,6 +59,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `src/officeagent/infrastructure/sqlite_store.py` | V1 rollback용 document/cache/dependency adapter |
 | `src/officeagent/infrastructure/postgres_corpus_store.py` | V2 document/vector/cache/revision 단일 store |
 | `src/officeagent/infrastructure/codex_app_server.py` | allowlisted child environment의 Codex JSON-RPC process/delta adapter |
+| `src/officeagent/infrastructure/structured_answer.py` | 한 필드 Codex JSON의 bounded incremental plaintext decoder |
 | `src/officeagent/infrastructure/migrations.py` | forward-only apply/check와 read-only readiness probe |
 | `src/officeagent/infrastructure/test_runner.py` | isolated PostgreSQL suite DB lifecycle·credential-name/effective-libpq-target guards |
 | `src/officeagent/migrations/0001_v2_schema.sql` | initial document/vector/cache/revision schema |
@@ -77,8 +79,8 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `tests/test_ingestion.py` | multipart, 3 error classes, TXT/PDF persistence |
 | `tests/test_retrieval.py` | expected source and no-evidence LLM skip |
 | `tests/test_cache_invalidation.py` | exact/similar and dependency invalidation |
-| `tests/test_streaming.py` | SSE sequence/cache/input validation |
-| `tests/test_codex_protocol.py` | App Server protocol/retry/tool/child-environment allowlist boundary |
+| `tests/test_streaming.py` | SSE sequence/cache/input과 structured-output failure/no-cache boundary |
+| `tests/test_codex_protocol.py` | App Server schema/decoder/item/retry/tool/child-environment boundary |
 | `tests/test_live_smoke.py` | disposable DB fail-closed, G7 citation/miss→hit→update→miss, proxy·receipt offline contract |
 | `tests/test_prompts.py` | client-controlled prompt metadata attribute boundary |
 | `tests/test_retrobot_hook.py` | hook 입력 metadata·timeline cell·explicit stage/commit 구조 계약 |

@@ -19,6 +19,7 @@ from officeagent.application.question_answering import (
     build_retrieval_version,
 )
 from officeagent.domain.models import CacheVersions, ReadinessStatus
+from officeagent.domain.ports import LlmGateway
 from officeagent.infrastructure.chroma_store import ChromaVectorStore
 from officeagent.infrastructure.sqlite_store import SqliteMetadataStore
 
@@ -97,7 +98,7 @@ class TestRuntime:
 async def build_test_runtime(
     temporary_directory: Path,
     *,
-    llm: FakeLlmGateway | ForbiddenLlmGateway | None = None,
+    llm: LlmGateway | None = None,
     vocabulary: tuple[str, ...] = ("education", "deployment", "vacation", "security"),
     retrieval_limit: int = 5,
     minimum_relevance_score: float = 0.5,

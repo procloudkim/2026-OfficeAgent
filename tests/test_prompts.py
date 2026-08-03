@@ -88,4 +88,5 @@ def test_prompt_template_version_is_the_payload_single_source() -> None:
     payload = _untrusted_payload(prompt)
     assert payload["prompt_version"] == PROMPT_TEMPLATE_VERSION
     assert f"Prompt template version: {PROMPT_TEMPLATE_VERSION}" in prompt
-    assert "Return plain answer text only" in prompt
+    assert "runtime output schema exactly" in prompt
+    assert "non-empty string named `answer`" in prompt

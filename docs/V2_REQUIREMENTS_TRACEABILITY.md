@@ -7,7 +7,7 @@
 | V1 rollback | `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | 최초 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
 | 제출 결론 | V2 branch 제출 `YES`; `main` merge는 수행하지 않음 |
-| 정직한 잔여 | `REQ-09` structured output, `PROC-04` worked-day push completeness는 `PARTIAL` |
+| 정직한 잔여 | `PROC-04` worked-day push completeness는 `PARTIAL`; CI·timing log는 `PLANNED` |
 
 이 문서가 현재 제출 상태의 정본입니다. `retros/`는 생성 시점의 append-only
 이력이며, 그 안의 후속 검증 제안은 이후 current-SHA 영수증과 충돌하지 않습니다.
@@ -22,10 +22,10 @@ profile 결과는 그 최종 HEAD에서 재발급하고 문서에 변동 SHA를 
 
 | 외부 제출-control current-SHA profile | 확인 경계 | sanitized 최신 결과 |
 |---|---|---|
-| `v2-core-suite` | PostgreSQL/pgvector, migration, 공식 3경로, transaction | `167 passed, 6 skipped`; 필수 node `3/3` |
+| `v2-core-suite` | PostgreSQL/pgvector, migration, 공식 3경로, transaction | `188 passed, 6 skipped`; 필수 node `3/3` |
 | `v2-product-readiness` | 실제 DB readiness | HTTP `200`, migration `0001`, pgvector `0.8.6` |
 | `v2-fresh-readme-launch` | detached clean launch | README 한 줄 실행과 cleanup `PASS` |
-| `v2-live-codex-sse` | actual Codex/Uvicorn SSE | `miss → exact hit → update → miss`, 복수 delta·citation `PASS` |
+| `v2-live-codex-sse` | actual Codex/Uvicorn SSE | structured answer projection, `miss → hit → update → miss`, 복수 delta·citation `PASS` |
 | `v2-document-parity` | 문서–코드–테스트 | claim group, link, Ruff, lock, Compose, hook `PASS` |
 | `v2-provenance` | template 증분·의존성 출처 | provenance와 지원자 확인 `PASS` |
 | `v2-retrobot-runtime` | hook 활성화·제한 입력·자동 회고 | runtime activation pair `PASS` |
@@ -50,7 +50,7 @@ tests에 두며, 원문 답변·credential·전체 실행 log는 source에 복�
 | `REQ-06` 출처 | server-side chunk→versioned citation mapper와 live receipt | `VERIFIED` |
 | `REQ-07` 무근거 | threshold miss에서 LLM·cache skip | `VERIFIED` |
 | `REQ-08` streaming | 실제 Codex delta를 Uvicorn HTTP/SSE로 순서대로 전달 | `VERIFIED` |
-| `REQ-09` LLM 활용 | timeout, first-delta retry, no-tool 경계는 검증; structured output은 미구현 | `PARTIAL` |
+| `REQ-09` LLM 활용 | 한 필드 output schema, strict incremental decoder, bounded timeout/retry와 invalid-output no-cache; actual live Codex | `VERIFIED` |
 | `REQ-10` exact cache | active + 세 current version exact predicate | `VERIFIED` |
 | `REQ-11` similar cache | exact miss 후 pgvector cosine `>=0.95` | `VERIFIED` |
 | `REQ-12` cache metadata | JSON/SSE hit/match/write/skip field | `VERIFIED` |
@@ -83,7 +83,7 @@ tests에 두며, 원문 답변·credential·전체 실행 log는 source에 복�
 | `TEST-03` | cache row/dependency/invalidation/revision/rollback | embedding, scripted LLM | `VERIFIED` |
 | `P0-SEC-01` | container executable/env/mount/effective DB target | 없음 | `VERIFIED` |
 | `P0-PROMPT-01` | deterministic JSON serialization과 breakout | 없음 | `VERIFIED` |
-| `P0-STRUCT-01` | P0-09 stop rule 준수: structured output 미구현 | 해당 없음 | `VERIFIED`; `REQ-09` scoring은 `PARTIAL` |
+| `P0-STRUCT-01` | 한 필드 schema→plaintext projection, protocol/API/cache failure 경계 | actual live만 offline double | `VERIFIED` |
 
 공식 명령은 다음 한 줄입니다.
 
@@ -94,6 +94,11 @@ docker compose run --build --rm test
 여섯 skip은 격리 image에 의도적으로 없는 Git·flock이 필요한 host-only Retrobot
 runtime test입니다. 필수 `TEST-01`~`TEST-03` node는 collect-only로 `3/3` 존재를
 별도 확인합니다.
+
+host suite의 `175 passed, 18 skipped`는 Compose DB URL·test-container sentinel이
+없는 빠른 선택 집합이고, 위 Docker suite의 `188 passed, 6 skipped`는 DB 경로를
+포함하되 host Git·flock runtime 여섯 건을 제외합니다. 따라서 합계 차이는 실패나
+누락이 아니라 실행 환경별 명시적 selection입니다.
 
 ## 4. P0 1~9 매핑
 
@@ -106,8 +111,8 @@ runtime test입니다. 필수 `TEST-01`~`TEST-03` node는 collect-only로 `3/3` 
 | 5. citation 의미 | retrieval provenance | source scan과 live versioned citation |
 | 6. offline double 제한 | embedding/LLM만 주입 | actual DB/parser + ASGI assertions |
 | 7. test container 격리 | Dockerfile, `.dockerignore`, Compose sentinel | executable/env/mount runtime test |
-| 8. DEC 상태 | DEC-010~012 `PROPOSED` | V1 DEC-002/003/007/008·ADR-0002 미 supersede; V2 구현 evidence와 분리 |
-| 9. structured output | 구현하지 않고 plain-text delta 유지 | source/prompt regression |
+| 8. DEC 상태 | DEC-010·011·013 `PROPOSED`; DEC-012 superseded | V1 rollback과 V2 구현 evidence를 분리 |
+| 9. structured output | `outputSchema` + strict decoder로 plaintext SSE 유지 | protocol/API/cache/live regression |
 
 ## 5. 불합격 기준 gate
 
@@ -127,7 +132,7 @@ runtime test입니다. 필수 `TEST-01`~`TEST-03` node는 collect-only로 `3/3` 
 |---|---|---|
 | `DOC-01` README | `VERIFIED` | 한 줄 run/test, detached clean launch와 core/document bundle |
 | `DOC-02` Architecture | `VERIFIED` | core/readiness/clean/live가 뒷받침하는 구조·SDK 설명 |
-| `DOC-03` Prompt Design | `VERIFIED` | JSON/version code·test와 structured-output 비범위의 정합성 |
+| `DOC-03` Prompt Design | `VERIFIED` | JSON/version/schema/decoder code·test와 실패 의미의 정합성 |
 | `DOC-04` tests | `VERIFIED` | 공식 3경로와 자동화 suite |
 | `DOC-05` 회고 산출물 | `VERIFIED` | 현재 자동 회고 pair와 timeline |
 | `PROC-03` Retrobot 자동 회고 | `VERIFIED` | 활성 hook의 setup→retro→product chronology와 skip-free runtime test |
@@ -144,15 +149,17 @@ runtime test입니다. 필수 `TEST-01`~`TEST-03` node는 collect-only로 `3/3` 
 | `INTERNAL-V2` | CI gate와 후속 gate `FAIL` | 자체 강화 계약; 필수 PR CI가 `PLANNED` |
 
 따라서 공식 제출 준비 `PASS`와 자체 내부 계약 `FAIL`은 모순이 아닙니다.
-`REQ-09`와 `PROC-04`는 두 판정과 별개로 `PARTIAL`을 유지합니다.
+`REQ-09`는 SCORING 요구로 세 evidence profile에 연결해 `VERIFIED`했지만 필수
+합격 gate로 격상하지 않습니다. `PROC-04`는 두 판정과 별개로 `PARTIAL`입니다.
 
 ## 8. 승격 금지선
 
 - HEAD가 바뀌면 여덟 profile과 final audit을 다시 실행합니다.
 - fake LLM SSE를 actual Codex incremental SSE로 표현하지 않습니다.
 - schema field 존재만으로 lookup/write enforcement를 주장하지 않습니다.
-- `REQ-09`는 structured output 전용 구현·실패 회귀 전까지 `PARTIAL`입니다.
+- `REQ-09`는 core protocol/API/cache, actual live Codex, document parity 세 profile의
+  같은-SHA 영수증 중 하나라도 없으면 `PARTIAL`로 내립니다.
 - `PROC-04`는 완전한 worked-day remote chronology 없이는 `PARTIAL`입니다.
-- DEC-010~012는 P0-08에 따라 `main` supersession에는 `PROPOSED`, V2 branch
-  evidence에는 `VERIFIED`를 유지합니다.
+- DEC-010·011·013은 P0-08에 따라 `main` supersession에는 `PROPOSED`, V2 branch
+  evidence에는 `VERIFIED`를 유지합니다. DEC-012는 branch에서 DEC-013이 supersede했습니다.
 - CI, timing log, backup/restore drill, HA/PITR는 구현했다고 주장하지 않습니다.

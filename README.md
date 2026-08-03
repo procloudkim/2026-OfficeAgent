@@ -84,9 +84,9 @@ database의 문서나 cache를 읽거나 변경하지 않습니다. admin target
 `127.0.0.1`, `localhost`, `::1` 중 하나가 아니거나 database가
 `postgres`가 아니면 실행 전에 실패합니다.
 
-live 계약은 citation, `miss → exact hit → 문서 update → miss`, 두 miss의
-복수 Codex delta를 모두 검증합니다. 따라서 초기 miss와 update 후 miss에서
-실제 Codex 구독 호출이 발생합니다. 출력 JSON은 검증된 `codex --version`과
+live 계약은 citation, `miss → exact cache-key hit → 문서 update → miss`, 두 miss의
+복수 plaintext SSE delta와 구조화 응답 검증을 모두 확인합니다. 따라서 초기
+miss와 update 후 miss에서 실제 Codex 구독 호출이 발생합니다. 출력 JSON은 검증된 `codex --version`과
 상태·출처 metadata만 담고 모델 답변·작업 경로·DB conninfo는 제외합니다.
 검색 문맥은 외부 Codex 서비스로 전송되므로 승인된 샘플로만 실행합니다.
 
@@ -153,6 +153,8 @@ answer.completed
 실패가 stream 시작 뒤 발생하면 `answer.error`로 종료합니다. 모든 이벤트에는 같은
 `request_id`가 있으며 started/completed에서 `cache_hit`, `cache_match`,
 `cache_written`, `cache_skip_reason`을 확인할 수 있습니다.
+`answer.delta`는 provisional이며 client는 `answer.completed`를 받아야 성공 답변으로
+확정할 수 있습니다. 이미 받은 delta는 후속 오류 때 회수되지 않습니다.
 
 `answer.citation`은 score gate를 통과한 검색 청크의 retrieval provenance입니다.
 모델이 모든 후보 청크를 사용했거나 각 생성 문장이 citation에 의해 entail된다는
@@ -167,7 +169,7 @@ answer.completed
 | 임베딩 | FastEmbed 다국어 MiniLM 384차원 | 한국어 로컬 추론과 API-key 불필요 | 최초 모델 다운로드와 CPU 비용 |
 | 저장·검색 | PostgreSQL 17.10 + pgvector 0.8.6 + Psycopg 3 | document/vector/cache/revision을 한 transaction에 유지 | Docker·migration 운영비, 단일 노드 |
 | 캐시 | exact 우선, cosine similar `0.95`, 세 version identity | 설정 변경 후 stale answer 재사용 방지 | cache reuse 감소, active row soft invalidation |
-| LLM | Codex App Server stdio JSON-RPC | ChatGPT 구독과 실제 incremental delta | host Node/Codex 로그인 의존 |
+| LLM | Codex App Server `outputSchema` + incremental decoder | ChatGPT 구독 응답을 검증하고 plaintext SSE 유지 | host Node/Codex 로그인과 로컬 decoder 경계 의존 |
 | 재현성 | digest-pinned DB image + isolated test database | evaluator/CI topology 고정 | API/Codex는 credential 격리를 위해 host 유지 |
 
 배운 점은 기술 개수보다 실패 경계를 줄이는 것이 중요하다는 것입니다.
@@ -186,8 +188,12 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
   직렬화하고 `<`, `>`, `&`를 JSON escape합니다.
 - delimiter breakout 회귀는 구조적 serialization을 증명하며 prompt injection의
   의미적 완전 차단을 뜻하지 않습니다.
-- structured LLM output은 별도 spike 전까지 구현하지 않습니다. 현재 계약은
-  plain text delta와 server-generated provenance입니다.
+- Codex에는 `{"answer": string}` 한 필드 `outputSchema`를 요청합니다. 전용
+  incremental decoder만 JSON 문자열을 해석하고 client에는 answer text만 보냅니다.
+- 완료 시 전체 JSON을 중복 key까지 다시 검사합니다. malformed/incomplete/blank,
+  NUL, 추가 field와 trailing data는 성공 완료·citation·cache write로 이어지지 않습니다.
+- answer 65,536자, raw structured JSON 1,048,576자와 stdio line 8 MiB는 upstream
+  보장이 아니라 이 구현의 bounded-memory 정책입니다.
 
 ## 테스트
 
@@ -198,6 +204,8 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 | `tests/test_migrations.py` | empty DB, 재실행, checksum/history fail-closed, rollback, advisory lock |
 | `tests/test_test_container_isolation.py` | Node/Codex/API key/token/.codex 부재와 disposable effective libpq database target |
 | `tests/test_prompts.py` | JSON round-trip, question/evidence/metadata delimiter breakout, version SSOT |
+| `tests/test_codex_protocol.py` | output schema, incremental JSON decoding, item binding, Unicode, timeout/retry와 invalid-output fail-closed |
+| `tests/test_streaming.py` | malformed output의 SSE error·JSON 502·no-cache와 live/cache text parity |
 | `tests/test_live_smoke.py` | disposable local DB, live citation/cache/update 전이, sanitized receipt의 offline 계약 |
 | 기존 V1 adapter tests | SQLite/Chroma 기준선 회귀; V2 제품 증거와 구분 |
 
@@ -253,4 +261,5 @@ current-SHA 실행 결과와 요구사항별 판정은
 - [V1/V2 Comparison](./docs/V1_V2_COMPARISON.md)
 - [Decision Log](./docs/DECISION_LOG.md)
 - [ADR-0004](./docs/adr/ADR-0004-postgresql-pgvector-storage.md)
+- [ADR-0005](./docs/adr/ADR-0005-codex-structured-output-streaming.md)
 - [원본 PRD](./docs/PRD.md)

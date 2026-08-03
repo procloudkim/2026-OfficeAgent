@@ -34,7 +34,8 @@ flowchart LR
     Q --> E
     Q --> D
     Q --> L["Codex App Server"]
-    L --> A
+    L --> S["Strict answer decoder"]
+    S --> A
 ```
 
 `api → application → domain port ← infrastructure` 방향을 유지하고
@@ -88,7 +89,7 @@ prepare를 허용하고 singleton revision row update가 증가를 직렬화합�
 
 ```json
 {
-  "prompt_version": "grounded-json-v2",
+  "prompt_version": "grounded-structured-answer-v3",
   "question": "사용자 질문",
   "evidence": [
     {
@@ -117,14 +118,18 @@ prompt injection의 의미적 완전 차단이나 answer entailment 증거는 �
 citation은 score gate를 통과한 `Chunk`에서 서버가 만든 retrieval provenance입니다.
 모델이 모든 청크를 실제 사용했는지 확인하는 post-generation verifier는 없습니다.
 
-structured LLM output은 별도 spike 전까지 구현하지 않습니다. 현재 출력 계약은
-plain text delta이며 citation은 모델 출력과 분리합니다.
+Codex turn에는 `{"answer": string}` 한 필드 output schema를 적용합니다. 모델의
+structured delta는 전용 decoder가 JSON 문자열 escape와 Unicode surrogate를
+incremental하게 해석하고, client에는 answer text만 전달합니다. citation은 계속
+모델 출력과 분리합니다.
 
 ## 5. Codex와 SSE
 
 `CodexAppServerGateway`는 host의 `codex app-server --listen stdio://`를 사용합니다.
-ephemeral/read-only/never-approve/no-tool thread를 만들고 같은 turn의
-`item/agentMessage/delta`만 `answer.delta`로 전달합니다.
+ephemeral/read-only/never-approve/no-tool thread를 만들고 같은 turn과 같은
+agent-message item의 `item/agentMessage/delta`만 받습니다. JSON 문법은 전달하지
+않고 decoder가 해석한 provisional answer 문자열 조각만 `answer.delta`로 보냅니다.
+client는 `answer.completed` 전까지 이를 성공 답변으로 확정하면 안 됩니다.
 
 Codex child에는 `PATH`·`HOME`·`CODEX_HOME`, locale/temp/certificate/proxy 등 실행에
 필요한 allowlist만 전달합니다. API key, database URL, Git/cloud token을 비롯한 그
@@ -138,8 +143,14 @@ live smoke의 DB 경계는 제품 DB와 분리됩니다. admin conninfo는 loopb
 HTTP flow를 수행하며 정상·예외 모두에서 삭제합니다. loopback HTTP client는
 proxy 환경을 상속하지 않습니다.
 
-첫 delta 전 transport/timeout만 한 번 재시도하고 delta 이후에는 중복 답변과
-이중 사용량을 피하기 위해 재시도하지 않습니다. cache hit의 80자 replay는
+gateway가 application에 첫 non-empty decoded fragment를 yield하기 전
+transport/timeout만 한 번 재시도하고, answer 이전 JSON framing만 받은 상태는 아직
+visible하지 않은 것으로 봅니다. 공백을 포함해 한 글자라도 yield한 뒤에는
+중복 답변과 이중 사용량을 피하기 위해 재시도하지 않습니다. protocol 위반은
+재시도하지 않으며 성공 completion·citation·cache write에 도달하지 않습니다.
+이미 보낸 SSE 일부는 회수할 수 없고 마지막 `answer.error`가 실패를 표시합니다.
+이 cutoff는 client socket 수신 여부나 exactly-once 전달을 보장하지 않습니다.
+cache hit의 80자 replay는
 `cache_hit=true`로 live delta와 구분합니다. live smoke harness는 citation 및
 `miss → exact hit → 문서 update → miss`를 한 runtime에서 검증하고, 두 miss에
 복수의 실제 delta를 요구합니다. receipt는 정규화된 Codex CLI version과
@@ -212,6 +223,8 @@ in-process FastAPI ASGI 계약이며 LLM과 embedding만 double로 교체합니�
   보장하지 않습니다.
 - 단일 노드이며 HA/PITR, OCR, document delete, tenant isolation은 비범위입니다.
 - 동일 질문 cache miss single-flight가 없어 Codex 중복 호출 가능성이 있습니다.
+- 구조화 decoder는 answer 65,536자, raw JSON 1,048,576자, stdio line 8 MiB의
+  로컬 상한을 둡니다. tokenizer 최적화나 answer 의미 검증은 제공하지 않습니다.
 - threshold `0.30`/`0.95`는 초기값이며 gold-set 최적값이라고 주장하지 않습니다.
 - enterprise support 또는 pgvector vendor SLA는 이 구현만으로 증명되지 않습니다.
 

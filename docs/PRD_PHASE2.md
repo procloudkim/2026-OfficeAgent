@@ -160,8 +160,8 @@ cache match, Codex first-delta만 기록하고 업로드 문서 원문, 질문 �
 ## 7. 결정 상태
 
 PostgreSQL 17.10 + pgvector 0.8.6, exact cosine, 빈 V2 DB, host Codex와
-DB/test-only Docker 범위는 구현·검증됐습니다. DEC-010~012는 P0-08 계약에 따라
+DB/test-only Docker 범위는 구현·검증됐습니다. DEC-010·011·013은 P0-08 계약에 따라
 `main` supersession에 대해 `PROPOSED`로 유지하며, V2 branch 구현 evidence의
-`VERIFIED` 상태와 구분합니다. Structured output 미구현으로 scoring rule
-`REQ-09`는 `PARTIAL`입니다.
+`VERIFIED` 상태와 구분합니다. DEC-012의 structured-output 보류 조건은 DEC-013과
+ADR-0005의 protocol/API/live 검증으로 V2 branch에서 supersede했습니다.
 각 claim의 최신 상태는 `docs/V2_REQUIREMENTS_TRACEABILITY.md`만 관리합니다.

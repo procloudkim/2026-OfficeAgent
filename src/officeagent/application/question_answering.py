@@ -150,8 +150,8 @@ class QuestionAnsweringService:
                 continue
             answer_parts.append(delta)
             yield AnswerEvent(AnswerEventType.DELTA, {"delta": delta})
-        answer = "".join(answer_parts).strip()
-        if not answer:
+        answer = "".join(answer_parts)
+        if not answer.strip():
             raise RuntimeError("LLM stream completed without answer text")
 
         for citation in citations:

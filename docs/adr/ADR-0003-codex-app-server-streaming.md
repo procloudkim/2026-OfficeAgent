@@ -18,7 +18,8 @@
 ## What
 
 - LLM 어댑터는 Codex App Server를 stdio JSON-RPC로 호출한다.
-- 서버는 `/v1/questions/stream`에서 실제 도착 순서의 delta를 SSE로 전달한다.
+- 서버는 `/v1/questions/stream`에서 실제 도착 순서의 검증된 answer 문자열
+  fragment를 SSE로 전달한다. structured JSON 문법은 노출하지 않는다.
 - 이벤트 계약은 `answer.started` → 하나 이상의 `answer.delta` →
   `answer.citation` → `answer.completed`이며, 실패 시 `answer.error`다.
 - 첫 delta 전에는 제한된 재시도를 허용하되, 첫 delta 뒤에는 재시도하지 않는다.
@@ -29,6 +30,8 @@
 
 - `CodexAppServerGateway`는 JSON-RPC 요청/응답과 스트림 알림을 `LlmGateway`
   프로토콜 뒤에 숨긴다.
+- 후속 [ADR-0005](ADR-0005-codex-structured-output-streaming.md)는 한 필드
+  `outputSchema`, same-item binding과 incremental plaintext decoder를 추가했습니다.
 - API 계층은 각 SSE data에 `request_id`를 포함한다. `answer.citation`은
   source payload를, 시작·완료 이벤트는 cache metadata를 포함한다.
 - retry는 첫 사용자 가시 delta 전에만 timeout/일시 오류에 적용한다. 이미 보낸
@@ -54,7 +57,7 @@ Codex CLI 경로와 맞는다. delta 이후 retry를 포기하면 일부 중단 
 
 - 규칙: `REQ-08`, `TECH-03`, `TECH-06`, `TECH-08`, `TECH-09`, `TECH-10`.
 - 자동화: `tests/test_codex_protocol.py`가 protocol 순서, ID filtering,
-  zero-delta, failed turn, retry 전후 경계를 검증한다.
+  schema/decoder, zero-delta, failed turn, retry 전후 경계를 검증한다.
 - API: `tests/test_streaming.py`가 두 gateway delta를 두 SSE delta로 전달함을
   검증한다.
 - 실런타임: 2026-07-28 `scripts/live_smoke.py`에서 Codex CLI 0.145.0을 통해

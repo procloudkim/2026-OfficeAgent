@@ -80,7 +80,7 @@ LLM 실행 중 corpus가 바뀐 경우 completed answer의 cache write를 건너
 race guard다.
 
 
-## P0 addendum — cache/input boundary `VERIFIED`, structured output `PARTIAL`
+## P0 addendum — cache/input/structured-output boundary `VERIFIED`
 
 - `answer_cache`의 `prompt_version`, `embedding_version`, `retrieval_version`은
   cache identity의 일부다. active exact/similar hit는 세 값이 현재 설정과 모두
@@ -95,9 +95,9 @@ race guard다.
   in-process FastAPI ASGI 계약을 검증한다.
 - Compose test container에는 Codex/Node/API key/.codex mount를 넣지 않으며 이
   경계의 runtime assertion도 G3/G4 evidence에 포함한다.
-- LLM structured output은 별도 spike의 수용 조건, failure modes와 current-SHA
-  evidence 없이는 구현하지 않는다. 그 전에는 text delta와 server-generated
-  provenance를 유지한다.
+- 후속 [ADR-0005](ADR-0005-codex-structured-output-streaming.md)가 structured-output
+  spike의 protocol/API/cache/live 조건을 충족했습니다. 한 필드 schema를
+  incremental plaintext로 projection하며 server-generated provenance는 유지합니다.
 
 ### P0 pin-point
 

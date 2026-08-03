@@ -18,7 +18,7 @@
 | V1 | implementation `bd08426`에서 27 tests PASS; final `29a429f`는 후속 Retrobot Markdown commit | `HISTORIC` rollback 기준선 |
 | V1 live | ancestor `e838cc7`에서 actual Codex/Uvicorn SSE 17 deltas | `HISTORIC`; V2 freshness로 재사용하지 않음 |
 | V2 초기 | `5ae7cca` exact archive에서 Docker 48 tests PASS | `HISTORIC` external observation; current evidence로 재사용하지 않음 |
-| V2 source evidence | current-SHA 8-profile bundle: Docker `167 passed, 6 skipped`, clean launch, readiness, actual Codex/SSE, 문서·출처·Retrobot, remote parity | 제출 evidence `VERIFIED` |
+| V2 source evidence | current-SHA 8-profile bundle: Docker `188 passed, 6 skipped`, clean launch, readiness, actual Codex/SSE, 문서·출처·Retrobot, remote parity | 제출 evidence `VERIFIED` |
 
 ## 2. 구조와 운영 비교
 
@@ -36,13 +36,13 @@
 V2 final bundle은 실제 PostgreSQL/pgvector transaction, migration, parser,
 retrieval, cache invalidation, readiness와 detached clean launch를 확인했습니다.
 별도 live profile은 Codex CLI 0.146.0과 Uvicorn HTTP/SSE에서 두 miss의 복수
-delta, exact replay, document update 뒤 miss와 versioned citation을 확인했습니다.
+plaintext delta, structured answer validation, exact replay, document update 뒤 miss와
+versioned citation을 확인했습니다.
 문서 claim registry, template 증분 provenance, Retrobot runtime과 remote exact parity도
 같은 제출 audit에 포함됩니다.
 
 남은 한계는 다음과 같습니다.
 
-- `REQ-09`: timeout/retry는 검증했지만 structured output은 구현하지 않아 `PARTIAL`
 - `PROC-04`: 8월 2일 작업 commit의 당일 push 증거가 없어 `PARTIAL`; 불합격 항목은
   아니지만 Track C 과정 증거 위험
 - CI, structured timing log, backup/restore drill과 한국어 retrieval gold set
@@ -53,13 +53,15 @@ delta, exact replay, document update 뒤 miss와 versioned citation을 확인했
 
 V2 branch 제출 recommendation은 `YES`입니다. 이는 일곱 불합격 사유가 발동하지
 않고 실행·테스트·문서·출처·remote evidence가 제출 가능한 상태라는 뜻입니다.
-`REQ-09`와 `PROC-04`의 잔여를 숨기거나 모든 scoring/process 항목 만점을 뜻하지
-않습니다.
+`REQ-09`의 structured output은 검증됐지만, 이 제출 권고가 모든 process 항목
+만점을 뜻하지는 않습니다. `PROC-04`의 과거 증거 한계는 그대로 공개합니다.
 
-DEC-010~012는 P0-08에 따라 `main` supersession에는 `PROPOSED`, V2 branch 구현
-evidence에는 `VERIFIED`입니다. 실제 `main` merge는 수행하지 않았으며, 최종 audit
+DEC-010·011·013은 P0-08에 따라 `main` supersession에는 `PROPOSED`, V2 branch 구현
+evidence에는 `VERIFIED`입니다. DEC-012는 V2 branch에서 DEC-013이 supersede했습니다.
+실제 `main` merge는 수행하지 않았으며, 최종 audit
 뒤에도 사용자 승인 없이는 merge하지 않습니다.
 
 관련 근거는 [Storage/Docker Trade-off](TRADEOFF_STORAGE_AND_DOCKER.md),
 [Decision Log](DECISION_LOG.md), [ADR-0002](adr/ADR-0002-storage-retrieval-and-cache.md),
-[ADR-0004](adr/ADR-0004-postgresql-pgvector-storage.md)에 남아 있습니다.
+[ADR-0004](adr/ADR-0004-postgresql-pgvector-storage.md),
+[ADR-0005](adr/ADR-0005-codex-structured-output-streaming.md)에 남아 있습니다.

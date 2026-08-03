@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -13,8 +14,16 @@ from typing import Any, Protocol
 
 from officeagent.domain.ports import LlmGateway
 from officeagent.infrastructure.settings import Settings, get_settings
+from officeagent.infrastructure.structured_answer import (
+    StructuredAnswerError,
+    StructuredAnswerStreamDecoder,
+    answer_output_schema,
+)
 
 JsonObject = Mapping[str, Any]
+logger = logging.getLogger(__name__)
+
+CODEX_STDIO_STREAM_LIMIT_BYTES = 8 * 1024 * 1024
 
 CODEX_CHILD_ENV_ALLOWLIST = frozenset(
     {
@@ -196,12 +205,14 @@ class _SubprocessAppServerSession:
                 await self._process.stdin.wait_closed()
 
         if self._process.returncode is None:
-            self._process.terminate()
-            with contextlib.suppress(TimeoutError):
+            with contextlib.suppress(ProcessLookupError):
+                self._process.terminate()
+            with contextlib.suppress(TimeoutError, ProcessLookupError):
                 await asyncio.wait_for(self._process.wait(), timeout=5.0)
         if self._process.returncode is None:
-            self._process.kill()
-            with contextlib.suppress(TimeoutError):
+            with contextlib.suppress(ProcessLookupError):
+                self._process.kill()
+            with contextlib.suppress(TimeoutError, ProcessLookupError):
                 await asyncio.wait_for(self._process.wait(), timeout=5.0)
 
         for task in (self._reader_task, self._stderr_task):
@@ -306,16 +317,22 @@ class CodexAppServerGateway(LlmGateway):
                         f"Codex executable was not found: {self._settings.codex_executable}"
                     ) from error
                 except OSError as error:
-                    if attempt == 1:
+                    if emitted_delta or attempt == 1:
                         raise CodexAppServerTransportError(
-                            "Codex App Server process could not be started"
+                            "Codex App Server transport failed"
                         ) from error
                 except (CodexAppServerTimeoutError, CodexAppServerTransportError):
                     if emitted_delta or attempt == 1:
                         raise
                 finally:
                     if session is not None:
-                        await session.aclose()
+                        try:
+                            await session.aclose()
+                        except Exception as error:
+                            logger.warning(
+                                "Codex App Server session cleanup failed",
+                                extra={"error_type": type(error).__name__},
+                            )
 
     async def _stream_once(
         self,
@@ -360,6 +377,7 @@ class CodexAppServerGateway(LlmGateway):
                 "input": [{"type": "text", "text": prompt}],
                 "approvalPolicy": "never",
                 "environments": [],
+                "outputSchema": answer_output_schema(),
             },
             timeout_seconds=min(
                 self._settings.codex_first_delta_timeout_seconds,
@@ -367,7 +385,10 @@ class CodexAppServerGateway(LlmGateway):
             ),
         )
         turn_id = _required_id(turn_result, "turn")
-        saw_delta = False
+        decoder = StructuredAnswerStreamDecoder()
+        agent_message_item_id: str | None = None
+        saw_raw_agent_delta = False
+        saw_visible_answer_delta = False
 
         while True:
             remaining_overall = self._settings.codex_overall_timeout_seconds - (
@@ -378,7 +399,7 @@ class CodexAppServerGateway(LlmGateway):
                     "Codex App Server turn exceeded its overall timeout"
                 )
             remaining = remaining_overall
-            if not saw_delta:
+            if not saw_visible_answer_delta:
                 elapsed = time.monotonic() - started_at
                 remaining = min(
                     remaining,
@@ -411,8 +432,25 @@ class CodexAppServerGateway(LlmGateway):
                     raise CodexAppServerProtocolError("Agent-message delta is not text")
                 if not delta:
                     continue
-                saw_delta = True
-                yield delta
+                item_id = params.get("itemId")
+                if not isinstance(item_id, str) or not item_id:
+                    raise CodexAppServerProtocolError(
+                        "Agent-message delta lacks an item id"
+                    )
+                if agent_message_item_id is None:
+                    agent_message_item_id = item_id
+                elif item_id != agent_message_item_id:
+                    raise CodexAppServerProtocolError(
+                        "Agent-message deltas came from multiple items"
+                    )
+                saw_raw_agent_delta = True
+                try:
+                    decoded = decoder.feed(delta)
+                except StructuredAnswerError as error:
+                    raise CodexAppServerProtocolError(str(error)) from error
+                if decoded:
+                    saw_visible_answer_delta = True
+                    yield decoded
                 continue
             if message.get("method") == "turn/completed":
                 turn = params.get("turn")
@@ -422,10 +460,14 @@ class CodexAppServerGateway(LlmGateway):
                     raise CodexAppServerTurnError(
                         f"Codex App Server turn ended as {turn.get('status')!r}"
                     )
-                if not saw_delta:
+                if not saw_raw_agent_delta:
                     raise CodexAppServerZeroDeltaError(
                         "Completed Codex turn emitted no assistant delta"
                     )
+                try:
+                    decoder.finish()
+                except StructuredAnswerError as error:
+                    raise CodexAppServerProtocolError(str(error)) from error
                 return
 
     async def _create_subprocess_session(self) -> AppServerSession:
@@ -439,6 +481,7 @@ class CodexAppServerGateway(LlmGateway):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=codex_child_environment(),
+            limit=CODEX_STDIO_STREAM_LIMIT_BYTES,
         )
         return _SubprocessAppServerSession(
             process,

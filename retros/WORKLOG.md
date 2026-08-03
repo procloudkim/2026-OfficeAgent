@@ -502,3 +502,58 @@
   종료 뒤 제거했다.
 - 문서 commit 뒤 자동 Retrobot commit을 분리하고, 새 최종 HEAD에서 current-SHA
   profile, snapshot, validator와 non-force remote parity를 다시 확인해야 종료한다.
+
+## 2026-08-03 — REQ-09 구조화 출력과 평가자 냉독 검증
+
+### 목표와 선택
+
+- 가산점 항목인 REQ-09를 필수 합격 gate로 바꾸지 않고, 실제 Codex structured
+  output을 기존 plaintext SSE·server citation·cache 계약에 결합한다.
+- `turn/start.outputSchema`는 `answer` string 한 필드만 허용하고, 전용 bounded
+  decoder가 JSON escape와 Unicode를 incremental하게 해석한다. prompt version은
+  v3로 올려 이전 plain-output cache를 재사용하지 않는다.
+
+### TDD와 수정
+
+- 기존 protocol 기준선 `13 passed` 뒤 RED는 raw JSON 노출, schema 부재와 invalid
+  output 수용을 포함해 `15 failed, 6 passed`였다. 구현 뒤 집중 경로를 GREEN으로
+  전환했다.
+- 독립 코드 리뷰가 visible delta 뒤 raw OSError 재시도, cleanup 예외 masking,
+  서로 다른 item splice, escaped NUL, fragment-list 메모리 증폭, stdio line limit과
+  live/cache 공백 불일치를 찾았다. 각각 RED로 재현한 뒤 item binding, StringIO,
+  로컬 상한, no-retry와 문자열 보존으로 수정했다.
+- completion 전 SSE delta는 확정 답변이 아니라 provisional이다. 후속 protocol
+  오류에서는 이미 보낸 text를 회수할 수 없지만 error로 끝내고 citation,
+  completed와 cache write를 금지한다.
+
+### Fact check와 Shower
+
+- 공식 Codex App Server 문서에서 current-turn `outputSchema`, 사용한 정확한
+  one-field 예시, item identity와 streamed agent-message delta를 확인했다.
+- RFC 8259에서 duplicate member의 비결정적 상호운용성과 구현별 parser limit
+  허용을 확인했다. 65,536 answer code point, 1,048,576 raw code point와 8 MiB line은
+  upstream 사양이 아니라 로컬 정책으로만 문서화했다.
+- 첫 무맥락 냉독은 provisional 성공 기준, retry cutoff와 evidence locator가
+  불명확해 CONDITIONAL이었다. `answer.completed` 성공 기준, application yield
+  cutoff, item mismatch, 문자 단위와 sanitized receipt의 증명 한계를 명시하고
+  모든 split point·1문자 fragment differential 회귀를 추가했다.
+- 두 번째 냉독은 구현·실패 계약에 모순이 없다고 봤고, 새 source SHA의 core/live/
+  document 세 recorder receipt 발급만 최종 PASS 조건으로 남겼다.
+
+### 검증 결과
+
+- host suite: `175 passed, 18 expected skips`
+- canonical Docker PostgreSQL/pgvector suite: `188 passed, 6 expected skips`
+- actual Codex CLI 0.146.0 + Uvicorn + disposable DB: `status=ok`, migration `0001`,
+  pgvector `0.8.6`, `miss → exact cache-key hit → update → miss`, plaintext delta
+  `19 → 1 → 17`, citation document version `1 → 2`
+- Ruff, lock check, Compose config, hook syntax와 diff check를 통과했다.
+
+### Trade-off와 다음 종료 조건
+
+- custom state machine의 유지보수 표면을 감수하는 대신 전체-buffer 응답 없이
+  JSON grammar를 숨기고 완료 시 strict parser와 결과를 다시 대조한다.
+- schema는 답변 사실성·citation entailment를 증명하지 않는다. tokenizer 최적화,
+  latency·의미 품질 benchmark, CI와 운영 복구는 구현했다고 주장하지 않는다.
+- 이 일반 commit과 자동 Retrobot commit 뒤 같은 최종 SHA의 core/live/document
+  receipt, snapshot, validator와 non-force remote parity를 모두 확인해야 종료한다.

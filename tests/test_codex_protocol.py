@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -12,18 +13,27 @@ import officeagent.infrastructure.codex_app_server as codex_module
 from officeagent.infrastructure.codex_app_server import (
     AppServerSession,
     CodexAppServerGateway,
+    CodexAppServerProtocolError,
     CodexAppServerTimeoutError,
     CodexAppServerToolUseError,
+    CodexAppServerTransportError,
     CodexAppServerTurnError,
     CodexAppServerZeroDeltaError,
 )
 from officeagent.infrastructure.settings import Settings
+from officeagent.infrastructure.structured_answer import (
+    STRUCTURED_ANSWER_MAX_CHARACTERS,
+    STRUCTURED_JSON_MAX_CHARACTERS,
+    StructuredAnswerError,
+    StructuredAnswerStreamDecoder,
+)
 
 
 @dataclass
 class FakeSession(AppServerSession):
     responses: deque[Mapping[str, Any] | Exception]
     notifications: deque[Mapping[str, Any] | Exception]
+    close_error: Exception | None = None
     requests: list[tuple[str, Mapping[str, Any]]] = field(default_factory=list)
     notifications_sent: list[tuple[str, Mapping[str, Any] | None]] = field(
         default_factory=list
@@ -60,6 +70,8 @@ class FakeSession(AppServerSession):
 
     async def aclose(self) -> None:
         self.closed = True
+        if self.close_error is not None:
+            raise self.close_error
 
 
 @dataclass
@@ -121,8 +133,8 @@ async def test_protocol_order_filters_unrelated_deltas_and_assembles_answer() ->
             [
                 _delta("ignore-thread", thread_id="other"),
                 _delta("ignore-turn", turn_id="other"),
-                _delta("Hello, "),
-                _delta("world"),
+                _delta('{"answer":"Hello, '),
+                _delta('world"}'),
                 _completed(),
             ]
         ),
@@ -143,7 +155,29 @@ async def test_protocol_order_filters_unrelated_deltas_and_assembles_answer() ->
     assert thread_params["environments"] == []
     assert thread_params["dynamicTools"] == []
     assert session.requests[0][1]["capabilities"]["experimentalApi"] is True
+    assert session.requests[2][1]["outputSchema"] == {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": False,
+    }
     assert session.closed is True
+
+
+async def test_deltas_from_different_agent_items_are_not_spliced() -> None:
+    first_delta = _delta('{"answer":"hello')
+    second_delta = dict(_delta(' world"}'))
+    second_delta["params"] = {**second_delta["params"], "itemId": "item-2"}
+    session = FakeSession(
+        responses=_responses(),
+        notifications=deque([first_delta, second_delta, _completed()]),
+    )
+    factory = FakeSessionFactory(deque([session]))
+
+    with pytest.raises(CodexAppServerProtocolError):
+        await _collect(_gateway(factory))
+
+    assert len(factory.created) == 1
 
 
 async def test_completed_turn_without_delta_is_rejected() -> None:
@@ -174,7 +208,7 @@ async def test_timeout_before_first_delta_retries_once_with_new_session() -> Non
     )
     second = FakeSession(
         responses=_responses(),
-        notifications=deque([_delta("recovered"), _completed()]),
+        notifications=deque([_delta('{"answer":"recovered"}'), _completed()]),
     )
     factory = FakeSessionFactory(deque([first, second]))
 
@@ -184,19 +218,64 @@ async def test_timeout_before_first_delta_retries_once_with_new_session() -> Non
     assert second.closed is True
 
 
-async def test_timeout_after_delta_does_not_retry() -> None:
+async def test_pre_visible_timeout_retry_survives_session_close_failure() -> None:
     first = FakeSession(
         responses=_responses(),
-        notifications=deque([_delta("partial"), CodexAppServerTimeoutError("stream stopped")]),
+        notifications=deque([CodexAppServerTimeoutError("no first delta")]),
+        close_error=RuntimeError("close failed"),
     )
     second = FakeSession(
         responses=_responses(),
-        notifications=deque([_delta("must not run"), _completed()]),
+        notifications=deque([_delta('{"answer":"recovered"}'), _completed()]),
+    )
+    factory = FakeSessionFactory(deque([first, second]))
+
+    assert await _collect(_gateway(factory)) == ["recovered"]
+    assert len(factory.created) == 2
+    assert first.closed is True
+
+
+async def test_timeout_after_delta_does_not_retry() -> None:
+    first = FakeSession(
+        responses=_responses(),
+        notifications=deque(
+            [
+                _delta('{"answer":"partial'),
+                CodexAppServerTimeoutError("stream stopped"),
+            ]
+        ),
+    )
+    second = FakeSession(
+        responses=_responses(),
+        notifications=deque([_delta('{"answer":"must not run"}'), _completed()]),
     )
     factory = FakeSessionFactory(deque([first, second]))
 
     with pytest.raises(CodexAppServerTimeoutError):
         await _collect(_gateway(factory))
+    assert len(factory.created) == 1
+    assert first.closed is True
+
+
+async def test_os_error_after_visible_delta_does_not_retry() -> None:
+    first = FakeSession(
+        responses=_responses(),
+        notifications=deque(
+            [
+                _delta('{"answer":"partial'),
+                OSError("stdout failed"),
+            ]
+        ),
+    )
+    unused_retry = FakeSession(
+        responses=_responses(),
+        notifications=deque([_delta('{"answer":"must not run"}'), _completed()]),
+    )
+    factory = FakeSessionFactory(deque([first, unused_retry]))
+
+    with pytest.raises(CodexAppServerTransportError):
+        await _collect(_gateway(factory))
+
     assert len(factory.created) == 1
     assert first.closed is True
 
@@ -210,12 +289,139 @@ async def test_empty_delta_does_not_block_pre_visible_delta_retry() -> None:
     )
     second = FakeSession(
         responses=_responses(),
-        notifications=deque([_delta("recovered"), _completed()]),
+        notifications=deque([_delta('{"answer":"recovered"}'), _completed()]),
     )
     factory = FakeSessionFactory(deque([first, second]))
 
     assert await _collect(_gateway(factory)) == ["recovered"]
     assert len(factory.created) == 2
+
+
+async def test_structured_prefix_does_not_block_pre_visible_delta_retry() -> None:
+    first = FakeSession(
+        responses=_responses(),
+        notifications=deque(
+            [
+                _delta('{"answer":"'),
+                CodexAppServerTimeoutError("no visible answer text"),
+            ]
+        ),
+    )
+    second = FakeSession(
+        responses=_responses(),
+        notifications=deque([_delta('{"answer":"recovered"}'), _completed()]),
+    )
+    factory = FakeSessionFactory(deque([first, second]))
+
+    assert await _collect(_gateway(factory)) == ["recovered"]
+    assert len(factory.created) == 2
+
+
+async def test_fragmented_structured_answer_decodes_json_escapes_incrementally() -> None:
+    session = FakeSession(
+        responses=_responses(),
+        notifications=deque(
+            [
+                _delta(' \n {"ans'),
+                _delta('wer":"한글\\nquote: \\"'),
+                _delta('ok\\" slash: \\\\ music: \\uD834'),
+                _delta('\\uDD1E"} \t'),
+                _completed(),
+            ]
+        ),
+    )
+    factory = FakeSessionFactory(deque([session]))
+
+    deltas = await _collect(_gateway(factory))
+
+    assert deltas == ["한글\nquote: \"", "ok\" slash: \\ music: ", "𝄞"]
+    assert "".join(deltas) == '한글\nquote: "ok" slash: \\ music: 𝄞'
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param('{"answer":""}', id="empty"),
+        pytest.param('{"answer":"   "}', id="blank"),
+        pytest.param('{"answer":42}', id="wrong-type"),
+        pytest.param('{"wrong":"answer"}', id="wrong-key"),
+        pytest.param('{"answer":"ok","extra":true}', id="additional-key"),
+        pytest.param(
+            '{"answer":"first","answer":"second"}',
+            id="duplicate-key",
+        ),
+        pytest.param('{"answer":"ok"} trailing', id="trailing-data"),
+        pytest.param('{"answer":"\\uDEAD"}', id="lone-surrogate"),
+        pytest.param('{"answer":"\\u0000"}', id="nul-character"),
+        pytest.param(
+            '{"answer":"' + ("x" * 65_537) + '"}',
+            id="oversized-answer",
+        ),
+    ],
+)
+async def test_invalid_structured_answer_is_rejected_without_retry(payload: str) -> None:
+    session = FakeSession(
+        responses=_responses(),
+        notifications=deque([_delta(payload), _completed()]),
+    )
+    unused_retry = FakeSession(
+        responses=_responses(),
+        notifications=deque([_delta('{"answer":"must not run"}'), _completed()]),
+    )
+    factory = FakeSessionFactory(deque([session, unused_retry]))
+
+    with pytest.raises(CodexAppServerProtocolError):
+        await _collect(_gateway(factory))
+
+    assert len(factory.created) == 1
+
+
+async def test_incomplete_structured_answer_is_rejected_at_completion() -> None:
+    session = FakeSession(
+        responses=_responses(),
+        notifications=deque([_delta('{"answer":"partial'), _completed()]),
+    )
+    factory = FakeSessionFactory(deque([session]))
+
+    with pytest.raises(CodexAppServerProtocolError):
+        await _collect(_gateway(factory))
+
+
+async def test_structured_answer_accepts_exact_character_limit() -> None:
+    answer = "x" * STRUCTURED_ANSWER_MAX_CHARACTERS
+    session = FakeSession(
+        responses=_responses(),
+        notifications=deque([_delta('{"answer":"' + answer + '"}'), _completed()]),
+    )
+
+    assert await _collect(_gateway(FakeSessionFactory(deque([session])))) == [answer]
+
+
+def test_structured_json_raw_character_limit_is_bounded() -> None:
+    decoder = StructuredAnswerStreamDecoder()
+    assert decoder.feed(" " * STRUCTURED_JSON_MAX_CHARACTERS) == ""
+    with pytest.raises(StructuredAnswerError, match="JSON is incomplete"):
+        decoder.finish()
+
+    oversized = StructuredAnswerStreamDecoder()
+    with pytest.raises(StructuredAnswerError, match="JSON exceeds the size limit"):
+        oversized.feed(" " * (STRUCTURED_JSON_MAX_CHARACTERS + 1))
+
+
+def test_incremental_decoder_matches_strict_parser_at_every_split_point() -> None:
+    payload = ' {"answer":"한글\\nquote: \\"ok\\" slash: \\\\ music: \\uD834\\uDD1E"} '
+    expected = json.loads(payload)["answer"]
+
+    for split_at in range(len(payload) + 1):
+        decoder = StructuredAnswerStreamDecoder()
+        decoded = decoder.feed(payload[:split_at]) + decoder.feed(payload[split_at:])
+        assert decoder.finish() == expected
+        assert decoded == expected
+
+    one_character_decoder = StructuredAnswerStreamDecoder()
+    decoded = "".join(one_character_decoder.feed(character) for character in payload)
+    assert one_character_decoder.finish() == expected
+    assert decoded == expected
 
 
 async def test_tool_attempt_is_rejected_without_retry() -> None:
@@ -312,6 +518,7 @@ async def test_child_process_receives_only_allowlisted_environment(
     assert session is sentinel
     child_environment = captured["env"]
     assert isinstance(child_environment, dict)
+    assert captured["limit"] == codex_module.CODEX_STDIO_STREAM_LIMIT_BYTES
     assert {name: child_environment[name] for name in allowed} == allowed
     assert set(child_environment) <= codex_module.CODEX_CHILD_ENV_ALLOWLIST
     assert not set(excluded) & set(child_environment)

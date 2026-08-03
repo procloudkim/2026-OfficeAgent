@@ -73,7 +73,8 @@ symlink 지원 여부는 별도로 확인해야 합니다.
    파일명·작성자·diff와 전역 `~/.codex`·`~/.claude` log는 전달하지 않습니다.
    read-only는 repository read-isolation 보장이 아닙니다.
 4. 모델의 일곱 필드 JSON을 guard가 재검사하고 canonical Markdown으로 로컬
-   렌더링합니다. 이는 제품 답변의 plain-text delta/SSE 계약과 별개입니다.
+   렌더링합니다. 이는 제품의 한 필드 structured answer→plaintext SSE 계약과
+   별개인 Retrobot 전용 schema입니다.
 5. Git directory read-only lock과 branch/HEAD/index/path preimage를 재검사합니다.
    표준 `index.lock`·`HEAD.lock`을 Codex 호출 전에 bounded retry로 획득하고
    committed helper, tree/final private index, no-clobber copy와 guarded timeline
