@@ -114,15 +114,16 @@ revision이 시작 revision과 같을 때만 cache를 저장한다. 달라졌다
 ### 3.5 Docker와 CI
 
 - PostgreSQL/pgvector, migration과 offline integration test를 Docker 책임으로
-  둔다. CI workflow는 별도 `PLANNED` 범위다.
+  둔다. Hosted CI는 이 재현 경계를 그대로 실행한다.
 - API와 실제 Codex App Server는 host에서 실행한다.
 - Compose DB는 loopback-only port, named volume, `pg_isready` healthcheck를
   사용한다.
 - `docker compose run --build --rm test` 한 줄이 DB readiness, migration, subscription-
   free pytest를 모두 수행한다.
-- 향후 CI는 lock check, Ruff, offline test, Compose config/build, DB/migration,
-  integration test, readiness와 claim 검사를 수행한다. 현재 repository에는 CI
-  workflow가 없으며 image publish와 외부 deployment도 비목표다.
+- `quality-gates`는 lock check, Ruff, offline test, Compose config/build,
+  DB/migration, integration test, readiness와 evaluator 문서 검사를 수행한다.
+  source 구현과 실제 candidate SHA의 hosted check-run 증거를 구분하며 image
+  publish, 실제 Codex와 외부 deployment는 비목표다.
 
 ### 3.6 관찰 가능성과 개인정보 경계
 

@@ -14,6 +14,7 @@ App Server 응답을 SSE로 전달하고 문서명·버전·청크 위치를 출
 | 독자의 목적 | 먼저 할 일 | 정상 결과 | 다음 문서 |
 |---|---|---|---|
 | 빠른 채점 | `docker compose run --build --rm test` | exit code `0` | [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md) |
+| Hosted CI | Draft PR의 `quality-gates` 확인 | exact SHA의 check 성공 | [workflow](./.github/workflows/quality-gates.yml) |
 | 제품 실행 | 아래 `제품 실행` 순서로 DB와 API 시작 | readiness `200`, upload `201` | [Evaluator Manual](./docs/EVALUATOR_MANUAL.md) |
 | 설계 검토 | transaction·SSE·cache 경계 확인 | 선택 이유와 비범위 식별 | [Architecture](./ARCHITECTURE.md) |
 | prompt/LLM 검토 | schema·decoder·실패 의미 확인 | raw JSON 비노출·invalid no-cache | [Prompt Design](./PROMPT_DESIGN.md) |
@@ -42,6 +43,13 @@ docker compose run --build --rm test
 PostgreSQL, pgvector, parser, cache transaction과 in-process FastAPI ASGI
 HTTP/SSE 계약으로 전체 suite를 실행하고 database를 제거합니다. 최신 실행 상태는
 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)에서 확인합니다.
+
+[Hosted `quality-gates` workflow](./.github/workflows/quality-gates.yml)는 같은 lock,
+Ruff, host regression, Compose build, PostgreSQL migration, Docker suite와 실제
+HTTP readiness를 순서대로 실행한 뒤 평가자 문서 링크와 상태 표현을 검사합니다.
+Codex·배포·image publish를 호출하지 않습니다. workflow 파일의 존재는 구현
+증거이고, `VERIFIED` 판정에는 해당 candidate SHA의 실제 GitHub check-run이
+추가로 필요합니다.
 
 ## 제품 실행
 
@@ -186,7 +194,7 @@ answer.completed
 | 저장·검색 | PostgreSQL 17.10 + pgvector 0.8.6 + Psycopg 3 | document/vector/cache/revision을 한 transaction에 유지 | Docker·migration 운영비, 단일 노드 |
 | 캐시 | exact 우선, cosine similar `0.95`, 세 version identity | 설정 변경 후 stale answer 재사용 방지 | cache reuse 감소, active row soft invalidation |
 | LLM | Codex App Server `outputSchema` + incremental decoder | ChatGPT 구독 응답을 검증하고 plaintext SSE 유지 | host Node/Codex 로그인과 로컬 decoder 경계 의존 |
-| 재현성 | digest-pinned DB image + isolated test database | evaluator/CI topology 고정 | API/Codex는 credential 격리를 위해 host 유지 |
+| 재현성 | digest-pinned DB image + isolated test database + hosted quality gate | evaluator와 CI의 검증 순서 고정 | API/Codex는 credential 격리를 위해 host 유지 |
 
 배운 점은 기술 개수보다 실패 경계를 줄이는 것이 중요하다는 것입니다.
 SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 줄였고,
@@ -223,13 +231,14 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 | `tests/test_codex_protocol.py` | output schema, incremental JSON decoding, item binding, Unicode, timeout/retry와 invalid-output fail-closed |
 | `tests/test_streaming.py` | malformed output의 SSE error·JSON 502·no-cache와 live/cache text parity |
 | `tests/test_live_smoke.py` | disposable local DB, live citation/cache/update 전이, sanitized receipt의 offline 계약 |
+| `tests/test_validate_documentation.py` | CI action pin·순서·secret 금지와 evaluator 문서 링크·상태 drift |
 | 기존 V1 adapter tests | SQLite/Chroma 기준선 회귀; V2 제품 증거와 구분 |
 
 host의 빠른 unit/legacy 회귀는 DB test를 skip합니다.
 
 ```bash
 uv run pytest
-uv run ruff check src tests
+uv run ruff check src tests scripts
 ```
 
 공식 PostgreSQL 경로는 위 Docker 한 줄 명령입니다.
@@ -266,7 +275,7 @@ docker compose run --rm migrate officeagent-migrate --check
 current-SHA 실행 결과와 요구사항별 판정은
 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)에서 한 번만 관리합니다.
 
-- structured timing log와 CI workflow는 이번 제출의 `PLANNED` 비목표
+- structured timing log와 단계별 성능 gate는 아직 `PLANNED`
 - 이미지 PDF OCR, 문서 삭제 API, 사용자별 corpus, HA/PITR
 - 동일 질문 cache miss single-flight와 answer-level entailment verifier
 

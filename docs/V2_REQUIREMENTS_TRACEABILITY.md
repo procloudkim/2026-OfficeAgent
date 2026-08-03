@@ -2,12 +2,12 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 상태 | `VERIFIED` — 최종 HEAD의 current-SHA 8-profile bundle `PASS` |
-| 대상 브랜치 | `feat/v2-postgres-pgvector-compose` |
+| 문서 상태 | `CANDIDATE` — 기준선 `3f1bc7d`의 8-profile bundle은 `PASS`; 현재 candidate 재검증 중 |
+| 대상 브랜치 | `feat/v2-quality-eval-ci` |
 | V1 rollback | `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | 최초 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
 | 제출 결론 | V2 branch 제출 `YES`; `main` merge는 수행하지 않음 |
-| 정직한 잔여 | `PROC-04`는 `PARTIAL`; CI·timing log는 `PLANNED` |
+| 정직한 잔여 | `PROC-04`는 `PARTIAL`; CI source는 구현, hosted check는 `PENDING`; timing log는 `PLANNED` |
 
 ## 이 문서를 읽는 방법
 
@@ -23,10 +23,11 @@ profile이 같은 최종 SHA에서 모두 `PASS`해야 `VERIFIED`다.
 이 문서가 현재 제출 상태의 정본입니다. `retros/`는 생성 시점의 append-only
 이력이며, 그 안의 후속 검증 제안은 이후 current-SHA 영수증과 충돌하지 않습니다.
 
-V1의 과거 test/live smoke를 V2 증거로 재사용하지 않는다. 아래 profile은 모두 최종
-제출 HEAD와 같은 SHA의 영수증으로 결박한다.
+V1의 과거 test/live smoke를 V2 증거로 재사용하지 않는다. 아래 표는 candidate의
+부모 `3f1bc7d` 기준선이며 현재 candidate의 완료 증거가 아니다. 최종 판정 전에는
+모든 profile을 같은 candidate SHA의 새 영수증으로 교체한다.
 
-| 외부 제출-control profile | 확인 경계 | sanitized 최신 결과 |
+| 외부 제출-control profile | 확인 경계 | `3f1bc7d` 기준선 결과 |
 |---|---|---|
 | `v2-core-suite` | PostgreSQL/pgvector, migration, 공식 3경로, transaction | `188 passed, 6 skipped`; 필수 node `3/3` |
 | `v2-product-readiness` | 실제 DB readiness | HTTP `200`, migration `0001`, pgvector `0.8.6` |
@@ -152,7 +153,7 @@ host suite의 `175 passed, 18 skipped`는 Compose DB URL·test-container sentine
 |---|---|---|
 | `SOURCE-EVIDENCE` | 8-profile bundle `PASS` | 최종 HEAD의 same-SHA 제출 증거; 계약 gate가 아님 |
 | `OFFICIAL-RULES` | 제출 준비 `PASS` | 과제 원문 rule scorecard; CI workflow를 필수로 요구하지 않음 |
-| `INTERNAL-V2` | CI gate와 후속 gate `FAIL` | 자체 강화 계약; 필수 PR CI가 `PLANNED` |
+| `INTERNAL-V2` | CI source `IMPLEMENTED`, check `PENDING` | 실제 PR check-run 전에는 G6를 승격하지 않음 |
 
 따라서 공식 제출 준비 `PASS`와 자체 내부 계약 `FAIL`은 모순이 아닙니다.
 `REQ-09`는 SCORING 요구로 세 evidence profile에 연결해 `VERIFIED`했지만 필수
@@ -169,4 +170,6 @@ host suite의 `175 passed, 18 skipped`는 Compose DB URL·test-container sentine
 - `PROC-04`는 완전한 worked-day remote chronology 없이는 `PARTIAL`입니다.
 - DEC-010·011·013은 P0-08에 따라 `main` supersession에는 `PROPOSED`, V2 branch
   evidence에는 `VERIFIED`를 유지합니다. DEC-012는 branch에서 DEC-013이 supersede했습니다.
-- CI, timing log, backup/restore drill, HA/PITR는 구현했다고 주장하지 않습니다.
+- CI는 workflow source만 `IMPLEMENTED`이며 실제 candidate check-run 전에는
+  `VERIFIED`로 올리지 않습니다. timing log, backup/restore drill과 HA/PITR는 아직
+  구현했다고 주장하지 않습니다.

@@ -1,0 +1,78 @@
+name: quality-gates
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gates-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: quality-gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      COMPOSE_PROJECT_NAME: officeagent-ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out candidate revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact candidate revision
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Set up pinned uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.32"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Verify dependency lock
+        run: uv lock --check
+
+      - name: Sync locked development environment
+        run: uv sync --frozen --group dev
+
+      - name: Lint source and contracts
+        run: uv run --frozen ruff check --no-cache .
+
+      - name: Run host unit and regression suite
+        run: uv run --frozen pytest -q
+
+      - name: Validate Compose model
+        run: docker compose config --quiet
+
+      - name: Build locked test image
+        run: docker compose build test
+
+      - name: Start PostgreSQL and await health
+        run: docker compose up -d --wait db
+
+      - name: Apply forward-only migrations
+        run: docker compose run --rm migrate
+
+      - name: Verify migration head and checksums
+        run: docker compose run --rm migrate officeagent-migrate --check
+
+      - name: Run full isolated PostgreSQL suite
+        run: docker compose run --rm test
+
+      - name: Exercise credential-free HTTP readiness
+        run: uv run --frozen python -m scripts.live_smoke --readiness-only
+
+      - name: Verify evaluator-facing documentation
+        run: uv run --frozen python -m scripts.validate_documentation
+
+      - name: Remove CI containers and volumes
+        if: ${{ always() }}
+        run: docker compose down --volumes --remove-orphans

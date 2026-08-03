@@ -72,6 +72,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `scripts/__init__.py` | verification helper package boundary; product wheel에서 제외 |
 | `scripts/live_smoke.py` | out-of-repo cwd·local disposable DB·HTTP/Codex G7 live runner |
 | `scripts/live_smoke_contract.py` | citation/cache/update/version receipt의 순수 offline validator |
+| `scripts/validate_documentation.py` | CI action pin·명령 순서와 evaluator 문서 링크·상태 drift 검사 |
 | `scripts/retrobot_context.py` | committed WORKLOG에서 최신 날짜 H2 하나만 추출하는 8 KiB parser |
 | `scripts/retrobot_guard.py` | preflight prompt·exact child-env·timeout·structured JSON 검증·canonical Markdown renderer |
 | `scripts/retrobot_publish.py` | no-clobber 설치·owned index 교체·guarded timeline append primitive |
@@ -87,6 +88,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `tests/test_streaming.py` | SSE sequence/cache/input과 structured-output failure/no-cache boundary |
 | `tests/test_codex_protocol.py` | App Server schema/decoder/item/retry/tool/child-environment boundary |
 | `tests/test_live_smoke.py` | disposable DB fail-closed, G7 citation/miss→hit→update→miss, proxy·receipt offline contract |
+| `tests/test_validate_documentation.py` | CI action SHA·candidate ref·금지 marker와 문서 drift 검사 |
 | `tests/test_prompts.py` | client-controlled prompt metadata attribute boundary |
 | `tests/test_retrobot_hook.py` | hook 입력 metadata·timeline cell·explicit stage/commit 구조 계약 |
 | `tests/test_retrobot_context.py` | 최신 날짜 H2 선택·후속 H2 차단·8 KiB 경계 계약 |
@@ -109,6 +111,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | 파일/경로 | 책임 |
 |---|---|
 | `compose.yaml` | digest-pinned DB, health, migrate와 isolated test topology |
+| `.github/workflows/quality-gates.yml` | exact candidate SHA의 lock·host·Docker·readiness·문서 CI |
 | `Dockerfile.test`, `.dockerignore` | locked Linux image, bounded context, offline guard/live-harness import와 Node/Codex 배제 |
 | `pyproject.toml`, `uv.lock` | Python build, locked dependencies, tool config |
 | `.gitignore`, `.gitattributes` | generated exclusion, cross-platform LF contract |

@@ -22,6 +22,7 @@ V1의 SQLite metadata/cache와 Chroma vector mutation은 하나의 transaction�
 - PostgreSQL 17.10 + pgvector 0.8.6 단일 CorpusStore
 - Codex App Server incremental LLM gateway
 - prompt/embedding/retrieval version이 결합된 answer cache
+- exact-SHA lock·host·Docker·readiness를 검증하는 GitHub `quality-gates`
 
 ### How
 
@@ -195,6 +196,14 @@ migration, pgvector, parser와 cache transaction은 실제 구현입니다. HTTP
 in-process FastAPI ASGI 계약이며 TCP/Uvicorn 또는 실제 Codex streaming 증거가
 아닙니다.
 
+Hosted `quality-gates`는 최소 `contents: read` 권한으로 candidate head SHA를 직접
+checkout한 뒤 lock, Ruff, host suite, Compose config/build, migration, Docker suite,
+DB-backed `/health/ready`와 evaluator 문서 검사를 실행합니다. checkout credential은
+보존하지 않습니다. 사용자 등록 repository secret, Codex, 배포, image publish와
+artifact upload step은 없지만 checkout·action·dependency download에는 최소 권한의
+자동 `GITHUB_TOKEN`과 외부 package registry를 사용합니다. CI 성공은 Codex-free
+회귀 증거이며 실제 Codex/SSE 증거를 대신하지 않습니다.
+
 ## 8. Readiness 경계
 
 `/health/live`는 process liveness만 반환합니다. V2 완료 계약의 `/health/ready`는
@@ -212,9 +221,10 @@ API는 application-owned probe port만 호출하고 Psycopg와 migration 구현�
 
 ## 9. 검증과 상태
 
-공식 offline suite의 불변 경계는 실제 PostgreSQL/pgvector, parser, transaction과
-in-process FastAPI ASGI 계약이며 LLM과 embedding만 double로 교체합니다. 이
-경계는 실제 Codex incremental SSE를 증명하지 않습니다. 변동 영수증과 승격 여부는
+공식 offline suite와 hosted `quality-gates`의 불변 경계는 실제
+PostgreSQL/pgvector, parser, transaction과 in-process FastAPI ASGI 계약이며 LLM과
+embedding만 double로 교체합니다. 이 경계는 실제 Codex incremental SSE를 증명하지
+않습니다. 변동 영수증과 승격 여부는
 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)만 갱신합니다.
 
 ## 10. Trade-off와 한계

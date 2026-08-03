@@ -10,7 +10,7 @@
 | 문서 상태 | `VERIFIED` — 변동 구현·검증 상태는 [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md)가 소유 |
 | 결정 수명주기 | P0-08에 따라 `main` supersession은 `PROPOSED`; V2 branch evidence는 `VERIFIED` |
 | 결정 | PostgreSQL 17.10 + pgvector 0.8.6 단일 영속 계층 |
-| Docker 범위 | PostgreSQL, migration과 offline integration test; CI는 `PLANNED` |
+| Docker 범위 | PostgreSQL, migration과 offline integration test; hosted CI source 구현 |
 | 제외 | API/Codex containerization, Redis, ANN, 별도 vector DB |
 | 증거 경계 | 운영비·성능·가용성의 정량 우위는 측정하지 않았으며 주장하지 않는다 |
 
@@ -123,7 +123,7 @@ test를 같은 topology로 반복하기 위해서다.
 - digest-pinned PostgreSQL+pgvector DB
 - `pg_isready` healthcheck와 named volume
 - migration runner와 subscription-free test image
-- 향후 CI의 Compose config/build/DB/migration/readiness 검증 (`PLANNED`)
+- hosted `quality-gates`의 Compose config/build/DB/migration/readiness 검증
 
 ### Docker가 소유하지 않는 것
 
@@ -134,6 +134,10 @@ test를 같은 topology로 반복하기 위해서다.
 
 따라서 API는 host에서 `uv run officeagent`로 실행한다. 이는 전체 container
 수보다 인증 경계와 evaluator 재현성을 함께 최적화한 절충이다.
+
+Hosted workflow는 source가 구현됐다는 사실과 실제 candidate check가 성공했다는
+증거를 분리한다. CI에는 Codex, 사용자 등록 repository secret, image publish와
+deployment step이 없으며, actual Codex/SSE는 별도 수동 profile로만 검증한다.
 
 ## 7. 선택안의 비용과 중단 기준
 
