@@ -76,7 +76,7 @@ async def test_runner_keeps_dev_and_process_holdout_inputs_separate() -> None:
     ]
     assert questions.questions == [case.question for case in dataset.cases]
     assert report.split == "holdout"
-    assert report.approval_status == "pending"
+    assert report.approval_status == "approved"
     assert report.to_json() == report.to_json()
     assert all(not filename.startswith("dev-") for filename in ingestion.filenames)
 

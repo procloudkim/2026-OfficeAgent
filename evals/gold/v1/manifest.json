@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "dataset_version": "v1",
-  "description": "Reviewer-readable OfficeAgent quality set: 15 dev and 15 process-holdout cases.",
+  "description": "Reviewer-readable OfficeAgent quality set: 15 dev cases over exact repository samples and 15 process-holdout cases.",
   "cases": {
     "path": "cases.jsonl",
-    "sha256": "fb6d2f0f60a74b5736f9e251015bfae6914e041750253b0671152f19bcf23cd8"
+    "sha256": "2cd182e04d49184e91d1ef223927f983f79008aaf423ac9e31647953cf660e7d"
   },
   "documents": [
     {
@@ -12,21 +12,14 @@
       "path": "documents/dev/company-policy.txt",
       "filename": "dev-company-policy.txt",
       "content_type": "text/plain",
-      "sha256": "e1a04f460722a6a0ba6755cdbbf6f280955833a1871b0a447c9b01126f0d364c"
+      "sha256": "2ccbdc608106ea6e3c1456b15f11c64ecf01c75b847a621e974be3527e79be36"
     },
     {
       "split": "dev",
       "path": "documents/dev/development-guide.md",
       "filename": "dev-development-guide.md",
       "content_type": "text/markdown",
-      "sha256": "3edc79322229d823f50f2a7199c7967a10ba6d3cb3b1d9dc3ddf9df745202231"
-    },
-    {
-      "split": "dev",
-      "path": "documents/dev/security-handbook.txt",
-      "filename": "dev-security-handbook.txt",
-      "content_type": "text/plain",
-      "sha256": "c7fe3fa4577587526d0aa98733c0981c976b13ce54a7d7dd467cca7bf97e25db"
+      "sha256": "1460774663dd039314b28e8d065c41f332a6a5dd175fe2f920d6dc5ae8c2d41e"
     },
     {
       "split": "holdout",

@@ -15,13 +15,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 GOLD_V1 = PROJECT_ROOT / "evals" / "gold" / "v1"
 
 
-def test_committed_gold_set_is_readable_but_not_claimed_as_approved() -> None:
+def test_committed_gold_set_is_owner_approved_at_the_exact_dataset_hash() -> None:
     dataset = load_gold_dataset(GOLD_V1, split="dev")
     holdout = load_gold_dataset(GOLD_V1, split="holdout")
 
     assert dataset.version == "v1"
     assert dataset.split == "dev"
-    assert dataset.approval_status == "pending"
+    assert dataset.approval_status == "approved"
     assert len(dataset.cases) == 15
     assert sum(case.answerable for case in dataset.cases) == 10
     assert sum(not case.answerable for case in dataset.cases) == 5
@@ -31,8 +31,40 @@ def test_committed_gold_set_is_readable_but_not_claimed_as_approved() -> None:
     assert {document.split for document in dataset.documents} == {"dev"}
     assert all(document.path.is_file() for document in dataset.documents)
 
-    with pytest.raises(DatasetValidationError, match="not approved"):
-        load_gold_dataset(GOLD_V1, split="dev", require_approved=True)
+    approved = load_gold_dataset(GOLD_V1, split="dev", require_approved=True)
+    assert approved.dataset_sha256 == dataset.dataset_sha256
+
+
+def test_dev_gold_corpus_exactly_matches_the_repository_samples() -> None:
+    manifest = json.loads((GOLD_V1 / "manifest.json").read_text(encoding="utf-8"))
+    dev_documents = {
+        item["filename"]: GOLD_V1 / item["path"]
+        for item in manifest["documents"]
+        if item["split"] == "dev"
+    }
+
+    assert set(dev_documents) == {
+        "dev-company-policy.txt",
+        "dev-development-guide.md",
+    }
+    assert dev_documents["dev-company-policy.txt"].read_bytes() == (
+        PROJECT_ROOT / "sample-docs" / "company-policy.txt"
+    ).read_bytes()
+    assert dev_documents["dev-development-guide.md"].read_bytes() == (
+        PROJECT_ROOT / "sample-docs" / "development-guide.md"
+    ).read_bytes()
+
+
+def test_dev_negatives_are_the_five_absent_policy_details() -> None:
+    dataset = load_gold_dataset(GOLD_V1, split="dev")
+
+    assert {case.id for case in dataset.cases if not case.answerable} == {
+        "dev-11-education-preapproval",
+        "dev-12-remote-fixed-days",
+        "dev-13-remote-core-hours",
+        "dev-14-release-schedule",
+        "dev-15-rollback-rule",
+    }
 
 
 def test_loader_rejects_a_cases_file_changed_after_manifest_hashing(tmp_path: Path) -> None:
