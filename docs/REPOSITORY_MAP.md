@@ -3,6 +3,10 @@
 tracked 파일을 역할과 생성 주체로 한 번씩만 분류한 MECE map입니다. 새 파일은
 아래 한 범주에만 배치하며, runtime/generated data는 Git에 넣지 않습니다.
 
+처음 실행하는 독자는 [Evaluator Manual](./EVALUATOR_MANUAL.md), 요구사항 상태를
+확인하는 독자는 [V2 Traceability](./V2_REQUIREMENTS_TRACEABILITY.md)에서 시작합니다.
+이 문서는 파일 색인이며 실행 절차나 현재 PASS 판정을 중복 소유하지 않습니다.
+
 ## A. 계약과 agent 운영
 
 | 파일 | 책임 | 주체 |
@@ -21,6 +25,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | 파일 | 책임 |
 |---|---|
 | `README.md` | V2 평가자 실행·테스트·API와 상태 요약 |
+| `docs/EVALUATOR_MANUAL.md` | 사전 조건→실행→예상 결과→실패 복구의 상세 평가 runbook |
 | `ARCHITECTURE.md` | V1 한계, V2 product flow·transaction·runtime 경계 |
 | `PROMPT_DESIGN.md` | grounding·abstention·injection 전략 |
 | `docs/REQUIREMENTS_TRACEABILITY.md` | V1 rollback 기준선의 PRD → evidence |

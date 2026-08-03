@@ -1,5 +1,10 @@
 # Prompt Design
 
+> **독자와 목적:** prompt·LLM·SSE 계약을 검토하는 독자가 신뢰할 수 없는 입력,
+> structured output, cache identity와 citation의 한계를 구분하기 위한 문서입니다.
+> 재현 절차는 [Evaluator Manual](./docs/EVALUATOR_MANUAL.md), 현재 상태는
+> [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)가 소유합니다.
+
 ## 상태와 목표
 
 프롬프트의 역할은 검색된 문서 근거 안에서 간결히 답하게 하는 것입니다. 검색

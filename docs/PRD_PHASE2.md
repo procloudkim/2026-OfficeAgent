@@ -1,5 +1,10 @@
 # OfficeAgent V2 Phase 2 PRD
 
+> **문서 역할:** V2를 시작할 때 합의한 설계 목표와 중단 기준을 보존하는 역사적
+> 계약입니다. 현재 구현 상태나 실행 방법을 판단할 때는
+> [V2 Traceability](./V2_REQUIREMENTS_TRACEABILITY.md)와
+> [Evaluator Manual](./EVALUATOR_MANUAL.md)을 사용하십시오.
+
 | 항목 | 값 |
 |---|---|
 | 설계 수명주기 | `BASELINE` — 구현·검증 상태는 V2 Traceability가 소유 |

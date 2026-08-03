@@ -9,6 +9,20 @@ App Server 응답을 SSE로 전달하고 문서명·버전·청크 위치를 출
 > [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)가 소유합니다.
 > `retros/`는 생성 시점의 사실을 보존하는 이력이며 현재 상태 정본이 아닙니다.
 
+## 독자별 5분 경로
+
+| 독자의 목적 | 먼저 할 일 | 정상 결과 | 다음 문서 |
+|---|---|---|---|
+| 빠른 채점 | `docker compose run --build --rm test` | `188 passed, 6 skipped` | [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md) |
+| 제품 실행 | 아래 `제품 실행` 순서로 DB와 API 시작 | readiness `200`, upload `201` | [Evaluator Manual](./docs/EVALUATOR_MANUAL.md) |
+| 설계 검토 | transaction·SSE·cache 경계 확인 | 선택 이유와 비범위 식별 | [Architecture](./ARCHITECTURE.md) |
+| prompt/LLM 검토 | schema·decoder·실패 의미 확인 | raw JSON 비노출·invalid no-cache | [Prompt Design](./PROMPT_DESIGN.md) |
+| 코드 탐색 | 관심 주장에 연결된 source/test 선택 | 한 request의 입구→출구 추적 | [Repository Map](./docs/REPOSITORY_MAP.md) |
+
+처음 보는 독자는 [Evaluator Manual](./docs/EVALUATOR_MANUAL.md)을 사용하십시오. 사전
+조건, 실행 순서, 예상 HTTP/SSE 응답, 실패 해석, cleanup과 외부 데이터 전송 경계를
+단계별로 설명합니다. 이 README는 가장 짧은 실행 입구와 계약 요약을 소유합니다.
+
 ## 구현 출처
 
 지원자 확인: 제공된 템플릿 8ca57661f7a9b54e8bac2ed8957e5c3dacc77502에서 증분 구현했으며, 기존 오픈소스 프로젝트를 통째로 복사하지 않았습니다. Python 제3자 패키지는 pyproject.toml과 uv.lock에 선언하고, Codex CLI와 PostgreSQL/pgvector image는 README와 compose.yaml에 고정했습니다.
@@ -70,8 +84,10 @@ bind합니다. 다른 host에 공개해야 할 때만 `OFFICEAGENT_API_HOST`를,
 `http://127.0.0.1:8000`, OpenAPI 문서는 `/docs`입니다.
 최초 실행에는 FastEmbed 모델 다운로드가 필요합니다.
 
-최신 final audit은 실제 구독을 사용하는 current-SHA smoke도 통과했습니다. 아래
-명령은 같은 경계를 재현합니다.
+실제 구독 통합 검증의 귀속 SHA와 최신 제출 HEAD의 관계는
+[V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)에서 구분합니다. 아래 명령은
+그 통합 경계를 현재 환경에서 **새로** 검증하며, 실행하지 않은 최종 HEAD에 과거
+실호출 결과를 자동 승계하는 명령이 아닙니다.
 
 ```bash
 uv run python -m scripts.live_smoke
@@ -255,6 +271,7 @@ current-SHA 실행 결과와 요구사항별 판정은
 
 상세 근거:
 
+- [Evaluator Manual](./docs/EVALUATOR_MANUAL.md)
 - [Architecture](./ARCHITECTURE.md)
 - [Prompt Design](./PROMPT_DESIGN.md)
 - [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)

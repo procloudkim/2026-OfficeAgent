@@ -1,8 +1,10 @@
 # Architecture
 
-> current-SHA 결과와 요구사항별 상태는
-> [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)가 소유합니다.
-> V1의 역사적 runtime 증거는 V2 완료 증거로 재사용하지 않습니다.
+> **독자와 목적:** 평가자·유지보수자가 upload부터 cache write까지의 경계와 실패 시
+> 보존해야 할 불변식을 이해하기 위한 문서입니다. 실행은
+> [Evaluator Manual](./docs/EVALUATOR_MANUAL.md), 현재 판정은
+> [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)를 사용하십시오. V1의
+> 역사적 runtime 증거는 V2 완료 증거로 재사용하지 않습니다.
 
 ## 1. Why–What–How
 

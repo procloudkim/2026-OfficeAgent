@@ -1,5 +1,10 @@
 # Technology Decision Register
 
+> **사용법:** 이 파일은 결정의 색인입니다. 아래 register에서 관심 결정을 고른 뒤
+> 연결된 ADR의 Context→Decision→Consequences를 읽으십시오. 실행·문제 해결은
+> [Evaluator Manual](./EVALUATOR_MANUAL.md), 현재 증거는
+> [V2 Traceability](./V2_REQUIREMENTS_TRACEABILITY.md)가 소유합니다.
+
 현재 기술 선택의 간결한 `What–Why–How–Trade-off` 정본입니다. README는 실행과
 핵심 선택을 요약하고, `ARCHITECTURE.md`는 시스템 흐름과 실패 경계를 설명합니다.
 프롬프트 고유 결정은 `PROMPT_DESIGN.md`, 현재 V2 요구사항별 검증 상태는

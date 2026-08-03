@@ -1,5 +1,10 @@
 # Storage and Docker Trade-off
 
+> **독자와 목적:** PostgreSQL+pgvector와 Docker 경계를 왜 선택했는지, 어떤 조건에서
+> 대안을 다시 검토할지 확인하는 의사결정 문서입니다. 실행 runbook은
+> [Evaluator Manual](./EVALUATOR_MANUAL.md), 현재 상태는
+> [V2 Traceability](./V2_REQUIREMENTS_TRACEABILITY.md)가 소유합니다.
+
 | 항목 | 값 |
 |---|---|
 | 문서 상태 | `VERIFIED` — 변동 구현·검증 상태는 [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md)가 소유 |

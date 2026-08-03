@@ -2,34 +2,51 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 상태 | `VERIFIED` — 최신 current-SHA evidence bundle `PASS` |
+| 문서 상태 | `VERIFIED` — runtime anchor와 제출 HEAD의 문서·remote 증거를 분리 |
 | 대상 브랜치 | `feat/v2-postgres-pgvector-compose` |
 | V1 rollback | `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | 최초 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
+| structured runtime anchor | `c42e7c912e31cd010ce8ec45b7f40810365f8204` |
 | 제출 결론 | V2 branch 제출 `YES`; `main` merge는 수행하지 않음 |
-| 정직한 잔여 | `PROC-04` worked-day push completeness는 `PARTIAL`; CI·timing log는 `PLANNED` |
+| 정직한 잔여 | actual structured live는 runtime anchor 귀속; `PROC-04`는 `PARTIAL`; CI·timing log는 `PLANNED` |
+
+## 이 문서를 읽는 방법
+
+이 파일은 실행 매뉴얼이 아니라 **요구사항→상태→증거 anchor**의 정본이다. 처음
+실행하는 독자는 [Evaluator Manual](./EVALUATOR_MANUAL.md), 설계 이유를 찾는 독자는
+[Architecture](../ARCHITECTURE.md)와 ADR을 먼저 사용한다.
+
+runtime-affecting path가 바뀌면 core·readiness·live 증거를 다시 발급한다. 평가자
+설명과 append-only 회고만 바뀐 handoff commit은 아래 scope가 runtime anchor와
+같을 때에만 기존 live 증거를 재사용하고, document·remote 검사는 제출 HEAD에서
+다시 수행한다.
+
+```bash
+git diff --quiet c42e7c912e31cd010ce8ec45b7f40810365f8204 HEAD -- \
+  src tests scripts compose.yaml Dockerfile.test pyproject.toml uv.lock \
+  sample-docs .githooks retrobot/SKILL.md
+```
+
+이 명령이 실패하면 “코드는 같고 문서만 바뀌었다”고 간주하지 않는다. 이렇게
+runtime anchor와 handoff HEAD를 구분해, 과거 live를 최종 HEAD에서 다시 실행했다고
+과장하지 않으면서 문서 보완 commit도 허용한다.
 
 이 문서가 현재 제출 상태의 정본입니다. `retros/`는 생성 시점의 append-only
 이력이며, 그 안의 후속 검증 제안은 이후 current-SHA 영수증과 충돌하지 않습니다.
 
-V1의 과거 test/live smoke나 이전 V2 실행을 현재 증거로 재사용하지 않았습니다.
-제출 HEAD가 바뀔 때마다 아래 여덟 profile을 같은 SHA에서 다시 실행하고 완전한
-bundle만 수용합니다.
+V1의 과거 test/live smoke를 V2 증거로 재사용하지 않는다. 아래 profile은 증거가
+귀속된 anchor를 함께 보여주며, 제출 HEAD는 Git `HEAD`와 live remote가 소유한다.
 
-최초 기준선은 위 full SHA로 고정했습니다. 이후 handoff commit은 평가자 문서와
-Retrobot 산출물만 바꾸며, 최종 SHA는 Git `HEAD`와 live remote가 소유합니다. 아래
-profile 결과는 그 최종 HEAD에서 재발급하고 문서에 변동 SHA를 중복 복사하지 않습니다.
-
-| 외부 제출-control current-SHA profile | 확인 경계 | sanitized 최신 결과 |
-|---|---|---|
-| `v2-core-suite` | PostgreSQL/pgvector, migration, 공식 3경로, transaction | `188 passed, 6 skipped`; 필수 node `3/3` |
-| `v2-product-readiness` | 실제 DB readiness | HTTP `200`, migration `0001`, pgvector `0.8.6` |
-| `v2-fresh-readme-launch` | detached clean launch | README 한 줄 실행과 cleanup `PASS` |
-| `v2-live-codex-sse` | actual Codex/Uvicorn SSE | structured answer projection, `miss → hit → update → miss`, 복수 delta·citation `PASS` |
-| `v2-document-parity` | 문서–코드–테스트 | claim group, link, Ruff, lock, Compose, hook `PASS` |
-| `v2-provenance` | template 증분·의존성 출처 | provenance와 지원자 확인 `PASS` |
-| `v2-retrobot-runtime` | hook 활성화·제한 입력·자동 회고 | runtime activation pair `PASS` |
-| `v2-remote-sync` | local/tracking/live remote | clean, ahead/behind `0/0`, exact SHA parity `PASS` |
+| 외부 제출-control profile | 증거 anchor | 확인 경계 | sanitized 최신 결과 |
+|---|---|---|---|
+| `v2-core-suite` | 제출 HEAD | PostgreSQL/pgvector, migration, 공식 3경로, transaction | `188 passed, 6 skipped`; 필수 node `3/3` |
+| `v2-product-readiness` | runtime-equivalent tree | 실제 DB readiness | HTTP `200`, migration `0001`, pgvector `0.8.6` |
+| `v2-fresh-readme-launch` | runtime-equivalent command set | detached clean README launch | 이전 launch·cleanup `PASS`; 현재 명령·링크 static check |
+| `v2-live-codex-sse` | `c42e7c9` | actual Codex/Uvicorn SSE | structured projection, `miss → hit → update → miss`, 복수 delta·citation `PASS` |
+| `v2-document-parity` | 제출 HEAD | 문서–코드–테스트 | link, Ruff, lock, Compose, hook `PASS` |
+| `v2-provenance` | 제출 HEAD | template 증분·의존성 출처 | provenance와 지원자 확인 `PASS` |
+| `v2-retrobot-runtime` | runtime-equivalent tree | hook 활성화·제한 입력·자동 회고 | runtime activation pair `PASS` |
+| `v2-remote-sync` | 제출 HEAD | local/tracking/live remote | clean, ahead/behind `0/0`, exact SHA parity `PASS` |
 
 Profile ID는 제출 repository 밖의 evidence-control Wiki에서 사용하는 audit
 이름입니다. 평가자가 repository 안에서 재현할 core/readiness/live 명령은 README와
@@ -116,12 +133,12 @@ host suite의 `175 passed, 18 skipped`는 Compose DB URL·test-container sentine
 
 ## 5. 불합격 기준 gate
 
-| ID | 판정 | current-SHA 근거 |
+| ID | 판정 | 증거 anchor와 근거 |
 |---|---|---|
 | `DQ-01` 실행 불가 | `PASS` | detached clean README launch |
 | `DQ-02` hardcode/LLM 없음 | `PASS` | actual Codex/Uvicorn SSE |
 | `DQ-03` vector/cache DB 없음 | `PASS` | real PostgreSQL/pgvector core suite |
-| `DQ-04` 자동화 테스트 전무 | `PASS` | 167-test Docker suite와 필수 3경로 |
+| `DQ-04` 자동화 테스트 전무 | `PASS` | 188-test Docker suite와 필수 3경로 |
 | `DQ-05` OSS 통째 복사 | `PASS` | template 증분 history, dependency provenance, 지원자 확인 |
 | `DQ-06` 허위 문서 | `PASS` | targeted functional/status registry, independent cold-read와 runtime bundle |
 | `DQ-07` 평가 창 밖 구현 | `PASS` | applicant window와 meaningful artifact/push 시각 |
@@ -144,7 +161,7 @@ host suite의 `175 passed, 18 skipped`는 Compose DB URL·test-container sentine
 
 | Namespace | 현재 판정 | 의미·정본 |
 |---|---|---|
-| `SOURCE-EVIDENCE` | 8-profile bundle `PASS` | 이 문서가 소유하는 current-SHA 제출 증거; 계약 gate가 아님 |
+| `SOURCE-EVIDENCE` | 8-profile bundle `PASS` | runtime anchor와 제출 HEAD를 분리한 증거; 계약 gate가 아님 |
 | `OFFICIAL-RULES` | 제출 준비 `PASS` | 과제 원문 rule scorecard; CI workflow를 필수로 요구하지 않음 |
 | `INTERNAL-V2` | CI gate와 후속 gate `FAIL` | 자체 강화 계약; 필수 PR CI가 `PLANNED` |
 
@@ -154,11 +171,12 @@ host suite의 `175 passed, 18 skipped`는 Compose DB URL·test-container sentine
 
 ## 8. 승격 금지선
 
-- HEAD가 바뀌면 여덟 profile과 final audit을 다시 실행합니다.
+- runtime scope가 바뀌면 core·readiness·live를, handoff 문서만 바뀌면
+  runtime-equivalence·document·remote profile을 다시 확인합니다.
 - fake LLM SSE를 actual Codex incremental SSE로 표현하지 않습니다.
 - schema field 존재만으로 lookup/write enforcement를 주장하지 않습니다.
-- `REQ-09`는 core protocol/API/cache, actual live Codex, document parity 세 profile의
-  같은-SHA 영수증 중 하나라도 없으면 `PARTIAL`로 내립니다.
+- `REQ-09`는 core protocol/API/cache, runtime anchor의 actual live와 제출 HEAD의
+  runtime-equivalence·document parity 중 하나라도 없으면 `PARTIAL`로 내립니다.
 - `PROC-04`는 완전한 worked-day remote chronology 없이는 `PARTIAL`입니다.
 - DEC-010·011·013은 P0-08에 따라 `main` supersession에는 `PROPOSED`, V2 branch
   evidence에는 `VERIFIED`를 유지합니다. DEC-012는 branch에서 DEC-013이 supersede했습니다.

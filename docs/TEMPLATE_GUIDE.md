@@ -9,6 +9,9 @@
 > PRD/README와 충돌하므로 실행 절차로 사용하지 않습니다. 이 문서는 그 낡은
 > 절차를 반복하지 않고 현재 유효한 경계만 적습니다.
 
+현재 저장소를 처음 실행하려는 독자는 이 역사 가이드가 아니라
+[Evaluator Manual](./EVALUATOR_MANUAL.md)에서 시작하십시오.
+
 ## 디렉터리 구조
 
 ```text
@@ -19,6 +22,7 @@
 ├── .githooks/post-commit      # 현재 Retrobot 자동 실행 경로
 ├── docs/
 │   ├── PRD.md                 # 과제 요구 정본
+│   ├── EVALUATOR_MANUAL.md    # 현재 상세 실행·문제 해결 매뉴얼
 │   └── TEMPLATE_GUIDE.md      # template/current 경계 설명
 ├── sample-docs/               # manual/live smoke fixture
 ├── retrobot/

@@ -2,6 +2,10 @@
 
 > 당신의 회고를 자동으로 기록해주는 도구입니다.
 
+> **독자와 목적:** 지원자와 reviewer가 자동 회고의 입력, 생성, 실패와 Git 안전
+> 경계를 재현하기 위한 운영 매뉴얼입니다. 제품 API 평가는
+> [Evaluator Manual](../docs/EVALUATOR_MANUAL.md)을 사용하십시오.
+
 Retrobot은 활성화된 post-commit 훅이 Codex에 제한된 커밋 문맥을 전달하여
 **KPT(Keep/Problem/Try) 회고**를 생성합니다. 훅이 실행되고 아래 skip 조건을
 통과한 `git commit`의 회고를 타임라인으로 정리합니다.
@@ -37,11 +41,40 @@ WORKLOG 전체는 로컬 기록이며 최신 날짜 구간만 8 KiB 상한 안�
 
 ## 설정
 
-프로젝트 클론 후 아래 명령어를 실행하세요:
+사전 조건은 Git, `flock`, Python과 로그인된 Codex CLI다. 먼저 실행 파일을 확인한다.
+
+```bash
+git --version
+python3 --version
+flock --version
+codex --version
+```
+
+프로젝트 clone마다 local Git config에 hook 경로를 한 번 설정한다.
 
 ```bash
 git config core.hooksPath .githooks
 ```
+
+설정 확인:
+
+```bash
+git config --get core.hooksPath
+```
+
+정상 출력은 `.githooks`다. 이후 일반 commit이 성공하면 제품 commit을 부모로 하는
+`docs(retro): 자동 회고 생성 by Retrobot` commit이 하나 추가된다. hook은 push하지
+않으므로 두 commit을 사용자가 함께 push해야 한다.
+
+회고의 `## 직접 보완`만 사람이 정리하는 문서 maintenance commit은 새 메타 회고를
+만드는 순환을 피하려고 명시적으로 skip할 수 있다.
+
+```bash
+RETROBOT_SKIP=1 git commit -m "docs(retro): refine applicant reflection"
+```
+
+제품·설계 변경에 편의상 skip을 사용하지 않는다. skip된 commit에는 자동 KPT가 없다는
+사실을 WORKLOG나 commit 설명에서 숨기지 않는다.
 
 ## 실행 경계
 
@@ -60,6 +93,26 @@ uv run pytest tests/test_retrobot_*.py
 git show --no-patch --format='%H%n%P%n%s' HEAD
 git diff-tree --no-commit-id --name-status -r HEAD
 ```
+
+예상 조건:
+
+- hook path가 `.githooks`다.
+- 집중 test가 통과한다.
+- 자동 회고 commit의 부모가 직전 일반 commit이다.
+- 자동 commit은 새 회고 파일과 `retros/TIMELINE.md` 두 path만 바꾼다.
+
+## 문제 해결
+
+| 증상 | 먼저 확인 | 처리 |
+|---|---|---|
+| 회고 commit이 없음 | `core.hooksPath`, `codex --version`, `flock` | 누락된 사전 조건을 복구하고 다음 일반 commit에서 확인 |
+| guard가 출력을 거부 | stderr의 schema·size·heading 사유 | Markdown을 강제로 commit하지 말고 structured JSON 계약을 수정 |
+| 회고·timeline이 이미 stage됨 | `git status --short` | 사용자 변경을 먼저 정리; hook은 덮어쓰지 않음 |
+| `.git/retrobot-recovery.*` 존재 | 중단 시점의 index/HEAD ownership | [독립 검증](#독립-검증) 후 보존·복구 경계를 확인; 임의 삭제 금지 |
+| 자동 회고 뒤 재귀 | 최신 commit 제목 | 정확한 자동 제목과 hook test를 확인 |
+
+자동 회고는 지원자의 이해 완료를 증명하지 않는다. 생성된 `Try`는 그 시점 제안이며,
+후속 current evidence와 직접 보완을 확인한 뒤에만 현재 할 일로 해석한다.
 
 ## 출력 구조
 

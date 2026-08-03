@@ -585,3 +585,31 @@
   있을 때만 유지한다.
 - 이번 문서 commit 뒤 현재 branch의 focused/full 검증과 non-force remote parity를
   다시 확인하되, 문서 변경만으로 새로운 제품 성능을 주장하지 않는다.
+
+## 2026-08-03 — 독자 중심 평가 매뉴얼과 문서 진입 경로
+
+### Why
+
+- README에는 실행 명령이 있었지만 사전 조건, 예상 응답, 실패 해석과 cleanup이 여러
+  설계 문서와 test에 흩어져 처음 보는 평가자가 순서를 재구성해야 했다.
+- 상세 설명을 모든 문서에 복제하면 숫자와 상태가 다시 drift하므로, 빠른 입구와
+  상세 runbook, 상태 정본을 분리할 필요가 있었다.
+
+### What
+
+- `docs/EVALUATOR_MANUAL.md`에 평가 모드 선택, 구독 없는 Docker 검증, 제품 실행,
+  HTTP/SSE 예상 결과, live data-egress 경계, 오류 복구와 cleanup을 단계별로 추가했다.
+- README에는 독자별 5분 경로를 두고 Architecture, Prompt Design, Repository Map,
+  decision·trade-off 문서에는 독자와 문서 역할을 명시했다.
+- V2 Traceability는 runtime anchor와 handoff HEAD를 구분하고, path-scoped equivalence
+  명령으로 docs-only commit이 실제 live를 새 HEAD에서 재실행한 것처럼 보이지 않게 했다.
+- Retrobot 문서에는 사전 조건, 기대 결과, 문제 해결과 reflection-only skip의 사용
+  경계를 추가했다.
+
+### Technical Writing 완료 기준
+
+- 독자가 `무엇→사전 조건→명령→정상 결과→실패 처리→한계` 순서로 따라갈 수 있다.
+- 실행 숫자와 현재 판정은 Traceability 한 곳이 소유하고 다른 문서는 링크한다.
+- 원본 PRD, 자동 KPT와 역사 verification receipt는 현재 매뉴얼처럼 다시 쓰지 않는다.
+- 모든 Markdown link, command spelling, Docker test, readiness, runtime-equivalence와
+  remote parity를 최종 commit에서 다시 확인한다.

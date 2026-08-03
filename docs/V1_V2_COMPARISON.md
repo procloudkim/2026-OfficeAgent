@@ -1,5 +1,9 @@
 # V1/V2 Evidence-Bound Comparison
 
+> **독자와 목적:** 평가자가 V1과 V2의 검증된 차이만 비교하도록 돕는 문서입니다.
+> 실행 절차는 [Evaluator Manual](./EVALUATOR_MANUAL.md), 현재 제출 판정은
+> [V2 Traceability](./V2_REQUIREMENTS_TRACEABILITY.md)를 우선합니다.
+
 | 항목 | 현재 판정 |
 |---|---|
 | 문서 상태 | `VERIFIED` |
