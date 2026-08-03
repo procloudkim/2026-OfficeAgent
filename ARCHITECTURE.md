@@ -17,7 +17,7 @@ V1의 SQLite metadata/cache와 Chroma vector mutation은 하나의 transaction�
 ### What
 
 - FastAPI HTTP/SSE adapter
-- parser와 deterministic chunk preparation
+- parser와 page-safe 문자·proxy-token 이중 상한 chunk preparation
 - FastEmbed 384차원 embedding
 - PostgreSQL 17.10 + pgvector 0.8.6 단일 CorpusStore
 - Codex App Server incremental LLM gateway
@@ -51,16 +51,21 @@ flowchart LR
 
 1. `/v1/documents`가 upload limit과 파일명을 검증합니다.
 2. 실제 PDF/TXT/MD parser가 page/offset을 보존해 text를 추출합니다.
-3. 청킹과 embedding은 DB transaction 밖에서 끝냅니다.
+3. 청킹과 embedding은 DB transaction 밖에서 끝냅니다. 청크는 page를 넘지
+   않고 기본 900 Unicode code point·900 `o200k_base` proxy token 이하이며
+   150 code point를 overlap합니다. tokenizer 실패는 embedding·DB commit 전에 sanitized
+   `502`로 fail-closed합니다.
 4. normalized filename advisory lock을 얻고 현재 hash/version을 다시 읽습니다.
 5. document row, chunk text/vector, cache invalidation, ready 전환과 corpus revision을
    한 PostgreSQL transaction에서 변경합니다.
-6. same-byte ready document는 version/revision/cache의 no-op입니다.
+6. same-byte ready document는 저장된 chunking policy까지 현재 policy와 같을 때만
+   version/revision/cache의 no-op입니다. policy가 다르면 같은 bytes도 새
+   version으로 재청킹하고 active answer cache 전체를 무효화합니다.
 
 다음 중 하나라도 실패하면 모두 rollback되고 이전 ready version과 active cache가
 유지됩니다.
 
-- 새 document/version
+- 새 document/version과 `chunking_version`
 - `document_chunks.embedding vector(384)`
 - dependency 또는 새 evidence similarity 기반 cache invalidation
 - 이전/new ready 상태
@@ -89,8 +94,16 @@ prepare를 허용하고 singleton revision row update가 증가를 직렬화합�
    모든 relevant hit가 prompt에 들어간 답변만 이 단계에 도달합니다.
 
 `CREATED`는 모든 active cache를, `UPDATED`는 기존 dependency와 새 chunk에
-관련성이 생긴 cache의 합집합을 무효화합니다. prompt/embedding/retrieval 구성
-불일치가 있으면 관련성 비교를 신뢰하지 않고 전체 fallback invalidation합니다.
+관련성이 생긴 cache의 합집합을 무효화합니다. chunking policy가 달라진
+`UPDATED`는 이전 citation·retrieval 의미를 재사용하지 않도록 active cache 전체를
+무효화합니다. prompt/embedding/retrieval 구성 불일치가 있어도 관련성 비교를
+신뢰하지 않고 전체 fallback invalidation합니다.
+
+Chunking policy ID는 algorithm version, 문자·proxy-token 상한, 문자 overlap과
+tokenizer package/encoding/policy identity를 SHA-256으로 digest합니다. retrieval
+version은 이 policy ID의 digest를 다시 포함해 청크 경계가 다른 answer
+cache가 섞이지 않게 합니다. raw tokenizer identity는 DB 및 retrieval
+version에 노출하지 않습니다.
 
 ## 4. Prompt와 citation 의미
 
@@ -181,7 +194,7 @@ citation과 cache 전이를 확인했습니다.
 
 | Table | 책임 |
 |---|---|
-| `documents` | stable ID/key, MIME/hash/version, ready, timestamps |
+| `documents` | stable ID/key, MIME/hash/version, chunking policy, ready, timestamps |
 | `document_chunks` | versioned text, page/offset provenance, `vector(384)` |
 | `corpus_state` | retrieval→LLM→cache-write race guard revision |
 | `answer_cache` | question vector, answer/citations, 세 config version, active/invalidation |
@@ -192,6 +205,12 @@ Migration runner는 session advisory lock, checksum과 applied-prefix 검사를
 fail-closed로 적용합니다. 각 migration은 독립 transaction입니다. 공식 test
 runner는 suite마다 고유 temporary database 하나를 생성·삭제하고, 별도 격리가
 필요한 migration test는 test별 disposable database를 사용합니다.
+
+Forward-only `0002` migration은 기존 document row에
+`legacy-page-safe-character-v1:unknown-settings` sentinel을 적용하고 기존 chunk·
+dependency를 보존합니다. migration 자체는 원문이나 예전 설정을 추측해
+재청킹하지 않으며, 현재 policy로의 이관은 각 파일의 same-filename
+재업로드에서만 일어납니다.
 
 ## 7. Docker·credential 경계
 
@@ -225,6 +244,10 @@ artifact upload step은 없지만 checkout·action·dependency download에는 �
 `pg_basebackup`과 archived WAL의 `recovery_target_time` replay로 PITR라 부릅니다.
 `pg_verifybackup` 뒤 실제 recovery server에서 target 전·후 marker와 promotion을
 검사하므로 manifest 검사만으로 복구 성공을 주장하지 않습니다.
+스키마는 SQL 파일을 직접 실행하지 않고 제품 `officeagent-migrate`로 적용합니다.
+소스의 발견된 migration manifest와 primary, logical restore, recovered server의
+`schema_migrations` head·checksum을 일치시키고 `documents.chunking_version`까지
+존재해야 receipt를 만듭니다.
 
 runner는 비어 있지 않은 `DOCKER_HOST`를 거부하고 선택된 local Unix-socket context만
 허용합니다. repository-owned Compose는 host port 없이 internal network와 random
@@ -318,6 +341,10 @@ embedding만 double로 교체합니다. 이 경계는 실제 Codex incremental S
   migration, backup/restore 운영비가 생깁니다.
 - exact vector scan은 이번 corpus에 단순하고 결정론적이지만 대규모 latency를
   보장하지 않습니다.
+- chunker의 `o200k_base` 상한은 바이트·토큰 밀도가 높은 입력을 제한하는
+  proxy입니다. semantic 경계, 정확한 Codex tokenizer, 품질 향상을 보장하지
+  않으며 상한·overlap은 Python Unicode code-point 단위입니다. grapheme
+  cluster 경계를 보존하지 않습니다.
 - 제품은 단일 노드이며 production HA와 recovery control plane, OCR, document delete,
   tenant isolation은 비범위입니다. 별도 local recovery drill만 존재합니다.
 - 동일 질문 cache miss single-flight가 없어 Codex 중복 호출 가능성이 있습니다.

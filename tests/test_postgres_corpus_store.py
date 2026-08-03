@@ -99,11 +99,13 @@ async def _commit(
     filename: str,
     content: str,
     vector_index: int,
+    chunking_version: str = "test-chunking-v1",
 ):
     return await store.commit_document(
         filename=filename,
         content_type="text/plain",
         content_hash=_digest(content),
+        chunking_version=chunking_version,
         chunks=[_chunk(content)],
         embeddings=[_vector(vector_index)],
         cache_versions=_VERSIONS,
@@ -157,6 +159,64 @@ async def test_commit_is_atomic_and_pgvector_retrieval_tracks_ready_version() ->
         assert connection.execute(
             "SELECT revision FROM corpus_state WHERE singleton"
         ).fetchone() == (2,)
+
+
+async def test_same_bytes_require_matching_chunking_policy_for_unchanged() -> None:
+    assert DATABASE_URL is not None
+    store = PostgresCorpusStore(DATABASE_URL)
+    created = await _commit(
+        store,
+        filename="policy-version.txt",
+        content="same bytes",
+        vector_index=0,
+        chunking_version="chunking-v1",
+    )
+    snapshot = await store.retrieve(_vector(0), limit=1)
+    await store.save_cached_answer(
+        normalized_question="same bytes?",
+        question_embedding=_vector(0),
+        answer="same bytes",
+        citations=[_citation(snapshot.hits[0])],
+        cache_versions=_VERSIONS,
+        expected_revision=snapshot.revision,
+    )
+    unchanged = await _commit(
+        store,
+        filename="policy-version.txt",
+        content="same bytes",
+        vector_index=0,
+        chunking_version="chunking-v1",
+    )
+    updated = await _commit(
+        store,
+        filename="policy-version.txt",
+        content="same bytes",
+        vector_index=0,
+        chunking_version="chunking-v2",
+    )
+
+    assert created.change is DocumentChange.CREATED
+    assert unchanged.change is DocumentChange.UNCHANGED
+    assert updated.change is DocumentChange.UPDATED
+    assert (created.document.version, unchanged.document.version, updated.document.version) == (
+        1,
+        1,
+        2,
+    )
+    assert updated.invalidated_cache_entries == 1
+    with psycopg.connect(DATABASE_URL) as connection:
+        policies = connection.execute(
+            "SELECT version, chunking_version, ready FROM documents ORDER BY version"
+        ).fetchall()
+        cache = connection.execute(
+            "SELECT active, invalidation_reason FROM answer_cache"
+        ).fetchone()
+        revision = connection.execute(
+            "SELECT revision FROM corpus_state WHERE singleton"
+        ).fetchone()
+    assert policies == [(1, "chunking-v1", False), (2, "chunking-v2", True)]
+    assert cache == (False, "chunking_configuration_changed")
+    assert revision == (2,)
 
 
 async def test_cache_requires_all_versions_and_revision_guard_skips_stale_write() -> None:
@@ -395,6 +455,7 @@ async def test_prompt_version_change_uses_full_invalidation_fallback() -> None:
         filename="prompt-policy.txt",
         content_type="text/plain",
         content_hash=_digest("education updated"),
+        chunking_version="test-chunking-v1",
         chunks=[_chunk("education updated")],
         embeddings=[_vector(0)],
         cache_versions=next_versions,

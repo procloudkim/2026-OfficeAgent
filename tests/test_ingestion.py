@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from httpx import ASGITransport, AsyncClient
 
 from officeagent.api.app import create_app
+from officeagent.application.chunking import ChunkTokenizationError
 from tests.helpers import build_test_runtime, make_text_pdf
 
 
@@ -91,3 +94,29 @@ async def test_upload_rejects_unsupported_empty_and_oversized_files(
     assert unsupported.status_code == 415
     assert empty.status_code == 422
     assert oversized.status_code == 413
+
+
+async def test_upload_hides_internal_chunk_tokenizer_failure(test_data_dir) -> None:
+    class FailingIngestion:
+        max_upload_bytes = 1_000_000
+
+        async def ingest(self, **kwargs):
+            del kwargs
+            raise ChunkTokenizationError("private/tokenizer/cache/path")
+
+    runtime = await build_test_runtime(test_data_dir)
+    app = create_app(replace(runtime.services, ingestion=FailingIngestion()))
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/v1/documents",
+                files={"file": ("policy.txt", b"searchable", "text/plain")},
+            )
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Document processing failed"}
+    assert "private" not in response.text

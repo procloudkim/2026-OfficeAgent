@@ -20,6 +20,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from officeagent.infrastructure.migrations import (
+    MigrationError,
+    MigrationFile,
+    discover_migrations,
+)
+
 POSTGRES_MAJOR = 17
 DEFAULT_COMPOSE_FILE = Path(__file__).resolve().parents[3] / "compose.recovery-drill.yaml"
 PROJECT_NAME = re.compile(r"officeagent-recovery-[0-9a-f]{12}")
@@ -29,6 +35,8 @@ TARGET_TIME = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}\+00:00"
 )
 VERSION = re.compile(r"\d+(?:\.\d+){1,3}")
+MIGRATION_VERSION = re.compile(r"\d{4}")
+MIGRATION_MANIFEST_ROW = re.compile(r"\d{4}:[0-9a-f]{64}")
 
 _ENVIRONMENT_ALLOWLIST = (
     "PATH",
@@ -103,14 +111,17 @@ class DrillObservation:
 
     postgres_major: int
     vector_version: str
+    migration_head: str
     logical_marker_count: int
     logical_schema_present: bool
+    logical_migrations_verified: bool
     base_backup_manifest_verified: bool
     wal_archive_count: int
     recovered_markers: tuple[str, ...]
     recovery_promoted: bool
     recovery_signal_removed: bool
     recovered_schema_present: bool
+    recovered_migrations_verified: bool
 
 
 def build_drill_environment(source: Mapping[str, str], *, password: str) -> dict[str, str]:
@@ -154,6 +165,12 @@ def validate_compose_definition(compose_text: str) -> None:
         "recovery.signal": "recovery.signal",
         "pg_is_in_recovery()": "writable recovery healthcheck",
         "postgres_recovery_drill_init.sh": "replication HBA bootstrap",
+        "dockerfile: Dockerfile.test": "application migration image",
+        'command: ["officeagent-migrate"]': "application migration runner",
+        "OFFICEAGENT_DATABASE_URL: postgresql://postgres:"
+        "${OFFICEAGENT_DRILL_PASSWORD:?required}@primary:5432/officeagent_drill": (
+            "isolated migration database URL"
+        ),
         "PGUSER: officeagent_drill_replication": "dedicated replication role",
         "primary_data:": "primary data volume",
         "wal_archive:": "WAL archive volume",
@@ -168,7 +185,6 @@ def validate_compose_definition(compose_text: str) -> None:
     forbidden_tokens = {
         "network_mode: host": "host networking",
         "/var/run/docker.sock": "Docker socket mount",
-        "OFFICEAGENT_DATABASE_URL": "product database configuration",
         "OPENAI_API_KEY": "LLM credentials",
     }
     for token, label in forbidden_tokens.items():
@@ -181,9 +197,12 @@ def build_recovery_receipt(observation: DrillObservation) -> dict[str, object]:
 
     if observation.postgres_major != POSTGRES_MAJOR:
         raise DrillError("PITR drill did not run on PostgreSQL 17")
+    if MIGRATION_VERSION.fullmatch(observation.migration_head) is None:
+        raise DrillError("migration head proof is invalid")
     if (
         observation.logical_marker_count != 1
         or not observation.logical_schema_present
+        or not observation.logical_migrations_verified
     ):
         raise DrillError("logical restore proof is incomplete")
     if not observation.base_backup_manifest_verified:
@@ -196,7 +215,10 @@ def build_recovery_receipt(observation: DrillObservation) -> dict[str, object]:
         raise DrillError("recovered server did not promote")
     if not observation.recovery_signal_removed:
         raise DrillError("recovery.signal was not removed after promotion")
-    if not observation.recovered_schema_present:
+    if (
+        not observation.recovered_schema_present
+        or not observation.recovered_migrations_verified
+    ):
         raise DrillError("recovered schema proof is missing")
     if VERSION.fullmatch(observation.vector_version) is None:
         raise DrillError("recovered vector extension version is invalid")
@@ -213,6 +235,8 @@ def build_recovery_receipt(observation: DrillObservation) -> dict[str, object]:
             "pitr": False,
             "marker_count": observation.logical_marker_count,
             "schema_present": observation.logical_schema_present,
+            "migration_head": observation.migration_head,
+            "migration_checksums_verified": observation.logical_migrations_verified,
         },
         "pitr": {
             "classification": "physical_base_backup_wal_replay",
@@ -224,6 +248,8 @@ def build_recovery_receipt(observation: DrillObservation) -> dict[str, object]:
             "promoted": observation.recovery_promoted,
             "recovery_signal_removed": observation.recovery_signal_removed,
             "schema_present": observation.recovered_schema_present,
+            "migration_head": observation.migration_head,
+            "migration_checksums_verified": observation.recovered_migrations_verified,
         },
         "cleanup": "completed_before_receipt",
     }
@@ -290,6 +316,8 @@ class PostgresRecoveryDrill:
             "down",
             "--volumes",
             "--remove-orphans",
+            "--rmi",
+            "local",
         )
         last_error: DrillError | None = None
         for attempt in range(3):
@@ -342,23 +370,29 @@ class PostgresRecoveryDrill:
         )
         postgres_major = self._parse_integer(postgres_version, step="primary-version") // 10_000
 
+        try:
+            migrations = discover_migrations()
+        except MigrationError as error:
+            raise DrillError("repository migrations are invalid") from error
+        expected_migrations = self._expected_migration_manifest(migrations)
         self._execute(
             self._compose(
-                "exec",
-                "-T",
-                "primary",
-                "psql",
-                "--set",
-                "ON_ERROR_STOP=1",
-                "--username",
-                "postgres",
-                "--dbname",
-                "officeagent_drill",
-                "--file",
-                "/migrations/0001_v2_schema.sql",
+                "run",
+                "--build",
+                "--rm",
+                "--no-deps",
+                "migration",
             ),
             step="apply-schema",
+            timeout_seconds=300,
         )
+        primary_migrations = self._query_migration_manifest(
+            "primary",
+            "officeagent_drill",
+            step="primary-migrations",
+        )
+        if primary_migrations != expected_migrations:
+            raise DrillError("primary migration ledger does not match source")
         self._psql(
             "primary",
             "officeagent_drill",
@@ -427,6 +461,13 @@ class PostgresRecoveryDrill:
             "officeagent_logical_restore",
             step="logical-schema",
         )
+        logical_migrations = self._query_migration_manifest(
+            "primary",
+            "officeagent_logical_restore",
+            step="logical-migrations",
+        )
+        if logical_migrations != expected_migrations:
+            raise DrillError("logical restore migration ledger does not match source")
 
         self._execute(
             self._compose(
@@ -571,6 +612,13 @@ class PostgresRecoveryDrill:
             "officeagent_drill",
             step="recovery-schema",
         )
+        recovered_migrations = self._query_migration_manifest(
+            "recovery",
+            "officeagent_drill",
+            step="recovery-migrations",
+        )
+        if recovered_migrations != expected_migrations:
+            raise DrillError("recovered migration ledger does not match source")
         vector_version = self._single_line(
             self._psql(
                 "recovery",
@@ -584,14 +632,17 @@ class PostgresRecoveryDrill:
         return DrillObservation(
             postgres_major=postgres_major,
             vector_version=vector_version,
+            migration_head=migrations[-1].version,
             logical_marker_count=logical_marker_count,
             logical_schema_present=logical_schema_present,
+            logical_migrations_verified=True,
             base_backup_manifest_verified=True,
             wal_archive_count=wal_archive_count,
             recovered_markers=recovered_markers,
             recovery_promoted=promoted_value == "f",
             recovery_signal_removed=True,
             recovered_schema_present=recovered_schema_present,
+            recovered_migrations_verified=True,
         )
 
     def _wait_for_archive(self, wal_file: str) -> None:
@@ -625,12 +676,46 @@ class PostgresRecoveryDrill:
             self._psql(
                 service,
                 database,
-                "SELECT to_regclass('public.document_chunks')",
+                "SELECT to_regclass('public.document_chunks') IS NOT NULL "
+                "AND EXISTS ("
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = 'documents' "
+                "AND column_name = 'chunking_version'"
+                ")",
                 step=step,
             ).stdout,
             step=step,
         )
-        return relation == "document_chunks"
+        if relation not in {"t", "f"}:
+            raise DrillError(f"{step} returned an invalid schema proof")
+        return relation == "t"
+
+    def _query_migration_manifest(
+        self,
+        service: str,
+        database: str,
+        *,
+        step: str,
+    ) -> tuple[str, ...]:
+        raw_value = self._psql(
+            service,
+            database,
+            "SELECT version || ':' || checksum "
+            "FROM schema_migrations ORDER BY version",
+            step=step,
+        ).stdout
+        rows = tuple(raw_value.splitlines())
+        if not rows or any(MIGRATION_MANIFEST_ROW.fullmatch(row) is None for row in rows):
+            raise DrillError(f"{step} returned an invalid migration manifest")
+        return rows
+
+    @staticmethod
+    def _expected_migration_manifest(
+        migrations: tuple[MigrationFile, ...],
+    ) -> tuple[str, ...]:
+        return tuple(
+            f"{migration.version}:{migration.checksum}" for migration in migrations
+        )
 
     def _psql(
         self,
@@ -646,6 +731,7 @@ class PostgresRecoveryDrill:
                 "-T",
                 service,
                 "psql",
+                "--no-psqlrc",
                 "--set",
                 "ON_ERROR_STOP=1",
                 "--username",

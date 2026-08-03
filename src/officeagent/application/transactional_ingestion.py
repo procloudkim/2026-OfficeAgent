@@ -5,10 +5,16 @@ from __future__ import annotations
 import hashlib
 import time
 from collections.abc import Callable, Sequence
+from functools import partial
 from typing import Protocol
 
 import anyio
 
+from officeagent.application.chunking import (
+    ChunkTokenLimiter,
+    build_chunking_version,
+    prepare_chunks,
+)
 from officeagent.application.ingestion import DocumentTooLargeError
 from officeagent.application.observability import (
     PipelineOperation,
@@ -20,7 +26,6 @@ from officeagent.application.observability import (
 )
 from officeagent.domain.models import (
     CacheVersions,
-    ExtractedSection,
     IngestionResult,
     PreparedChunk,
 )
@@ -41,6 +46,7 @@ class CorpusWriter(Protocol):
         filename: str,
         content_type: str,
         content_hash: str,
+        chunking_version: str,
         chunks: Sequence[PreparedChunk],
         embeddings: Sequence[Sequence[float]],
         cache_versions: CacheVersions,
@@ -57,6 +63,7 @@ class TransactionalIngestionService:
         *,
         chunk_size: int,
         chunk_overlap: int,
+        token_limiter: ChunkTokenLimiter,
         max_upload_bytes: int,
         cache_versions: CacheVersions,
         retrieval_threshold: float,
@@ -73,6 +80,12 @@ class TransactionalIngestionService:
         self._embedding_provider = embedding_provider
         self._chunk_size = chunk_size
         self._chunk_overlap = chunk_overlap
+        self._token_limiter = token_limiter
+        self._chunking_version = build_chunking_version(
+            chunk_size=chunk_size,
+            overlap=chunk_overlap,
+            token_counter_version=token_limiter.token_counter_version,
+        )
         self._max_upload_bytes = max_upload_bytes
         self._cache_versions = cache_versions
         self._retrieval_threshold = retrieval_threshold
@@ -111,9 +124,16 @@ class TransactionalIngestionService:
                     safe_filename,
                     content,
                 )
-            chunks = _prepare_chunks(
-                sections, chunk_size=self._chunk_size, overlap=self._chunk_overlap
-            )
+            with timer.measure(TimingStage.PARSE):
+                chunks = await anyio.to_thread.run_sync(
+                    partial(
+                        prepare_chunks,
+                        sections,
+                        chunk_size=self._chunk_size,
+                        overlap=self._chunk_overlap,
+                        token_limiter=self._token_limiter,
+                    )
+                )
             if not chunks:
                 raise EmptyDocumentError("The document does not contain searchable text")
             with timer.measure(TimingStage.EMBED):
@@ -129,6 +149,7 @@ class TransactionalIngestionService:
                     filename=safe_filename,
                     content_type=content_type or "application/octet-stream",
                     content_hash=hashlib.sha256(content).hexdigest(),
+                    chunking_version=self._chunking_version,
                     chunks=chunks,
                     embeddings=embeddings,
                     cache_versions=self._cache_versions,
@@ -142,52 +163,3 @@ class TransactionalIngestionService:
             raise
         timer.finish(PipelineOutcome.COMPLETED)
         return result
-
-
-def _prepare_chunks(
-    sections: Sequence[ExtractedSection], *, chunk_size: int, overlap: int
-) -> tuple[PreparedChunk, ...]:
-    """Use V1-equivalent deterministic page/offset chunk boundaries."""
-
-    chunks: list[PreparedChunk] = []
-    chunk_index = 0
-    for section in sections:
-        cursor = 0
-        while cursor < len(section.text):
-            proposed_end = min(cursor + chunk_size, len(section.text))
-            end = _prefer_whitespace_boundary(section.text, cursor, proposed_end, chunk_size)
-            raw = section.text[cursor:end]
-            left_trimmed = len(raw) - len(raw.lstrip())
-            right_trimmed = len(raw.rstrip())
-            text = raw.strip()
-            if text:
-                chunks.append(
-                    PreparedChunk(
-                        text=text,
-                        chunk_index=chunk_index,
-                        page_number=section.page_number,
-                        start_offset=section.start_offset + cursor + left_trimmed,
-                        end_offset=section.start_offset + cursor + right_trimmed,
-                    )
-                )
-                chunk_index += 1
-            if end >= len(section.text):
-                break
-            cursor = end - overlap if end - overlap > cursor else end
-    return tuple(chunks)
-
-
-def _prefer_whitespace_boundary(
-    text: str,
-    start: int,
-    proposed_end: int,
-    chunk_size: int,
-) -> int:
-    if proposed_end >= len(text):
-        return len(text)
-    minimum = start + int(chunk_size * 0.6)
-    boundary = max(
-        text.rfind(" ", minimum, proposed_end),
-        text.rfind("\n", minimum, proposed_end),
-    )
-    return boundary + 1 if boundary >= minimum else proposed_end

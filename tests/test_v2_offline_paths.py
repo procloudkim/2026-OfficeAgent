@@ -12,6 +12,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from officeagent.api.app import ServiceContainer, create_app
+from officeagent.application.chunking import build_chunking_version
 from officeagent.application.prompts import PROMPT_TEMPLATE_VERSION
 from officeagent.application.question_answering import (
     NO_EVIDENCE_ANSWER,
@@ -22,6 +23,7 @@ from officeagent.application.transactional_ingestion import TransactionalIngesti
 from officeagent.domain.models import CacheVersions
 from officeagent.infrastructure.migrations import PostgresReadinessProbe
 from officeagent.infrastructure.postgres_corpus_store import PostgresCorpusStore
+from officeagent.infrastructure.tokenization import TiktokenTokenCounter
 from tests.helpers import FakeLlmGateway, make_text_pdf
 
 DATABASE_URL = os.environ.get("OFFICEAGENT_DATABASE_URL")
@@ -100,6 +102,12 @@ def _reset_database() -> None:
 def _build_services() -> tuple[ServiceContainer, FakeLlmGateway, CacheVersions]:
     assert DATABASE_URL is not None
     embeddings = KeywordEmbedding384Provider()
+    token_counter = TiktokenTokenCounter()
+    chunking_version = build_chunking_version(
+        chunk_size=500,
+        overlap=50,
+        token_counter_version=token_counter.token_counter_version,
+    )
     llm = FakeLlmGateway(deltas=("근거 기반 ", "테스트 답변"))
     cache_versions = CacheVersions(
         prompt_version=PROMPT_TEMPLATE_VERSION,
@@ -108,6 +116,7 @@ def _build_services() -> tuple[ServiceContainer, FakeLlmGateway, CacheVersions]:
             limit=3,
             minimum_score=0.30,
             cache_threshold=0.95,
+            chunking_version=chunking_version,
         ),
     )
     corpus = PostgresCorpusStore(DATABASE_URL)
@@ -117,6 +126,7 @@ def _build_services() -> tuple[ServiceContainer, FakeLlmGateway, CacheVersions]:
             embeddings,
             chunk_size=500,
             chunk_overlap=50,
+            token_limiter=token_counter,
             max_upload_bytes=1_000_000,
             cache_versions=cache_versions,
             retrieval_threshold=0.30,
@@ -193,14 +203,18 @@ async def test_http_ingestion_uses_real_txt_pdf_parser_migration_and_postgres() 
     assert ready_response.status_code == 200
     assert ready_response.json() == {
         "status": "ready",
-        "migration_head": "0001",
+        "migration_head": "0002",
         "vector_version": "0.8.6",
     }
     assert llm.prompts == []
 
     with psycopg.connect(DATABASE_URL) as connection:
         documents = connection.execute(
-            "SELECT filename, version, ready FROM documents ORDER BY filename"
+            """
+            SELECT filename, version, ready, chunking_version
+            FROM documents
+            ORDER BY filename
+            """
         ).fetchall()
         pdf_page = connection.execute(
             """
@@ -219,10 +233,11 @@ async def test_http_ingestion_uses_real_txt_pdf_parser_migration_and_postgres() 
             "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
         ).fetchone()
 
-    assert documents == [
+    assert [row[:3] for row in documents] == [
         ("deployment.pdf", 1, True),
         ("교육-복지.txt", 1, True),
     ]
+    assert all(str(row[3]).startswith("page-safe-dual-bound-v1:") for row in documents)
     assert pdf_page == (1,)
     assert migration_count is not None and migration_count[0] >= 1
     assert vector_version is not None

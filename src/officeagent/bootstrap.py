@@ -8,6 +8,7 @@ from functools import partial
 import anyio
 
 from officeagent.api.app import ServiceContainer
+from officeagent.application.chunking import build_chunking_version
 from officeagent.application.observability import JsonTimingRecorder
 from officeagent.application.prompts import build_prompt_cache_version
 from officeagent.application.question_answering import (
@@ -21,7 +22,7 @@ from officeagent.infrastructure.embeddings import FastEmbedEmbeddingProvider
 from officeagent.infrastructure.migrations import PostgresReadinessProbe, apply_migrations
 from officeagent.infrastructure.postgres_corpus_store import PostgresCorpusStore
 from officeagent.infrastructure.settings import Settings, get_settings
-from officeagent.infrastructure.tokenization import TiktokenPromptTokenCounter
+from officeagent.infrastructure.tokenization import TiktokenTokenCounter
 
 
 async def build_services(settings: Settings | None = None) -> ServiceContainer:
@@ -40,10 +41,15 @@ async def build_services(settings: Settings | None = None) -> ServiceContainer:
         active_settings.embedding_model,
         active_settings.embedding_dimension,
     )
-    prompt_token_counter = TiktokenPromptTokenCounter()
+    token_counter = TiktokenTokenCounter()
+    chunking_version = build_chunking_version(
+        chunk_size=active_settings.chunk_size,
+        overlap=active_settings.chunk_overlap,
+        token_counter_version=token_counter.token_counter_version,
+    )
     cache_versions = CacheVersions(
         prompt_version=build_prompt_cache_version(
-            token_counter_version=prompt_token_counter.token_counter_version,
+            token_counter_version=token_counter.token_counter_version,
             input_token_budget=active_settings.prompt_input_token_budget,
         ),
         embedding_version=embeddings.embedding_version,
@@ -51,6 +57,7 @@ async def build_services(settings: Settings | None = None) -> ServiceContainer:
             limit=active_settings.retrieval_limit,
             minimum_score=active_settings.minimum_relevance_score,
             cache_threshold=active_settings.cache_similarity_threshold,
+            chunking_version=chunking_version,
         ),
     )
     corpus = PostgresCorpusStore(active_settings.database_url)
@@ -65,6 +72,7 @@ async def build_services(settings: Settings | None = None) -> ServiceContainer:
             embeddings,
             chunk_size=active_settings.chunk_size,
             chunk_overlap=active_settings.chunk_overlap,
+            token_limiter=token_counter,
             max_upload_bytes=active_settings.max_upload_bytes,
             cache_versions=cache_versions,
             retrieval_threshold=active_settings.minimum_relevance_score,
@@ -80,7 +88,7 @@ async def build_services(settings: Settings | None = None) -> ServiceContainer:
             cache_similarity_threshold=active_settings.cache_similarity_threshold,
             cache_versions=cache_versions,
             corpus_store=corpus,
-            token_counter=prompt_token_counter,
+            token_counter=token_counter,
             prompt_input_token_budget=active_settings.prompt_input_token_budget,
             timing_recorder=timing_recorder,
         ),

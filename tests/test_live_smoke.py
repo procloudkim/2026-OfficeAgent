@@ -30,7 +30,7 @@ from scripts.live_smoke_contract import (
 
 READY = {
     "status": "ready",
-    "migration_head": "0001",
+    "migration_head": "0002",
     "vector_version": "0.8.6",
 }
 CREATED_UPLOAD = {
@@ -225,7 +225,7 @@ def test_readiness_receipt_is_exact_and_rejects_unexpected_runtime_state() -> No
     )
 
     assert json.dumps(receipt, separators=(",", ":")) == (
-        '{"command_status":"PASS","http_status":200,"migration_head":"0001",'
+        '{"command_status":"PASS","http_status":200,"migration_head":"0002",'
         '"status":"ready","vector_version":"0.8.6"}'
     )
     with pytest.raises(RuntimeError, match="readiness"):
@@ -271,7 +271,7 @@ async def test_readiness_only_main_skips_codex_documents_and_llm_and_cleans_up(
         return {
             "command_status": "PASS",
             "http_status": 200,
-            "migration_head": "0001",
+            "migration_head": "0002",
             "status": "ready",
             "vector_version": "0.8.6",
         }
@@ -298,7 +298,7 @@ async def test_readiness_only_main_skips_codex_documents_and_llm_and_cleans_up(
     await live_smoke.main(["--readiness-only"])
 
     assert capsys.readouterr().out == (
-        '{"command_status":"PASS","http_status":200,"migration_head":"0001",'
+        '{"command_status":"PASS","http_status":200,"migration_head":"0002",'
         '"status":"ready","vector_version":"0.8.6"}\n'
     )
     assert events == [
@@ -429,7 +429,7 @@ async def test_readiness_smoke_calls_only_health_endpoint_and_stops_server(
     assert receipt == {
         "command_status": "PASS",
         "http_status": 200,
-        "migration_head": "0001",
+        "migration_head": "0002",
         "status": "ready",
         "vector_version": "0.8.6",
     }

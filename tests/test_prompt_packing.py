@@ -26,7 +26,14 @@ from officeagent.application.question_answering import (
 from officeagent.domain.models import CacheVersions, Chunk, SearchHit
 from officeagent.infrastructure import tokenization
 from officeagent.infrastructure.settings import Settings
-from officeagent.infrastructure.tokenization import TiktokenPromptTokenCounter
+from officeagent.infrastructure.tokenization import (
+    PROMPT_TOKENIZER_ENCODING,
+    PROMPT_TOKENIZER_POLICY_VERSION,
+    TOKENIZER_ENCODING,
+    TOKENIZER_POLICY_VERSION,
+    TiktokenPromptTokenCounter,
+    TiktokenTokenCounter,
+)
 from tests.helpers import FakeLlmGateway, StaticReadinessProbe
 
 
@@ -159,12 +166,18 @@ async def test_tiktoken_adapter_counts_the_complete_prompt_without_truncating(
 ) -> None:
     encoding = _TiktokenEncodingStub([])
     monkeypatch.setattr(tokenization, "get_encoding", lambda name: encoding)
-    counter = TiktokenPromptTokenCounter()
+    counter = TiktokenTokenCounter()
     prompt = "token " * 10_000
 
     assert await counter.count_tokens(prompt) == 10_000
     assert encoding.seen == [prompt]
     assert counter.token_counter_version.startswith("tiktoken:")
+
+
+def test_prompt_tokenizer_names_remain_compatible() -> None:
+    assert TiktokenPromptTokenCounter is TiktokenTokenCounter
+    assert PROMPT_TOKENIZER_ENCODING == TOKENIZER_ENCODING
+    assert PROMPT_TOKENIZER_POLICY_VERSION == TOKENIZER_POLICY_VERSION
 
 
 def test_prompt_budget_setting_has_bounded_default() -> None:
@@ -250,6 +263,7 @@ async def test_question_path_abstains_without_llm_or_cache_when_prompt_budget_ex
         limit=5,
         minimum_score=0.3,
         cache_threshold=0.95,
+        chunking_version="test-chunking-v1",
     )
     service = QuestionAnsweringService(
         metadata,
@@ -323,6 +337,7 @@ async def test_question_path_cites_only_fitting_evidence_and_skips_cache() -> No
                 limit=5,
                 minimum_score=0.3,
                 cache_threshold=0.95,
+                chunking_version="test-chunking-v1",
             ),
         ),
         token_counter=counter,

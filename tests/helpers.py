@@ -12,6 +12,7 @@ from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from officeagent.api.app import ServiceContainer
+from officeagent.application.chunking import LEGACY_CHARACTER_CHUNKING_VERSION
 from officeagent.application.ingestion import IngestionService
 from officeagent.application.prompts import PROMPT_TEMPLATE_VERSION
 from officeagent.application.question_answering import (
@@ -118,6 +119,7 @@ async def build_test_runtime(
             limit=retrieval_limit,
             minimum_score=minimum_relevance_score,
             cache_threshold=cache_similarity_threshold,
+            chunking_version=LEGACY_CHARACTER_CHUNKING_VERSION,
         ),
     )
     services = ServiceContainer(

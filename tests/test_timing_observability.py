@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -70,6 +71,19 @@ class _FailingRecorder:
 
 
 @dataclass
+class _CharacterTokenLimiter:
+    thread_ids: list[int] = field(default_factory=list)
+
+    @property
+    def token_counter_version(self) -> str:
+        return "character-test-v1"
+
+    def bounded_prefix(self, text: str, *, max_tokens: int) -> str:
+        self.thread_ids.append(threading.get_ident())
+        return text[:max_tokens]
+
+
+@dataclass
 class _CorpusWriter:
     calls: int = 0
 
@@ -79,12 +93,13 @@ class _CorpusWriter:
         filename: str,
         content_type: str,
         content_hash: str,
+        chunking_version: str,
         chunks: Sequence[PreparedChunk],
         embeddings: Sequence[Sequence[float]],
         cache_versions: CacheVersions,
         retrieval_threshold: float,
     ) -> IngestionResult:
-        del embeddings, cache_versions, retrieval_threshold
+        del chunking_version, embeddings, cache_versions, retrieval_threshold
         self.calls += 1
         now = datetime(2026, 8, 3, tzinfo=UTC)
         return IngestionResult(
@@ -230,11 +245,14 @@ async def test_transactional_ingestion_uses_the_same_stage_contract(
     runtime = await build_test_runtime(test_data_dir)
     writer = _CorpusWriter()
     collector = _ReceiptCollector()
+    token_limiter = _CharacterTokenLimiter()
+    event_loop_thread = threading.get_ident()
     ingestion = TransactionalIngestionService(
         writer,
         runtime.embeddings,
         chunk_size=300,
         chunk_overlap=50,
+        token_limiter=token_limiter,
         max_upload_bytes=1_000_000,
         cache_versions=runtime.cache_versions,
         retrieval_threshold=0.5,
@@ -251,6 +269,8 @@ async def test_transactional_ingestion_uses_the_same_stage_contract(
 
     assert result.chunk_count == 1
     assert writer.calls == 1
+    assert token_limiter.thread_ids
+    assert all(thread_id != event_loop_thread for thread_id in token_limiter.thread_ids)
     assert collector.receipts[0].to_dict() == {
         "answer_path": None,
         "cache_hit": None,
@@ -260,8 +280,8 @@ async def test_transactional_ingestion_uses_the_same_stage_contract(
         "outcome": "completed",
         "request_id": _request_id(11),
         "schema_version": 1,
-        "stages_ms": {"embed": 1.0, "parse": 1.0, "persist": 1.0},
-        "total_ms": 7.0,
+        "stages_ms": {"embed": 1.0, "parse": 2.0, "persist": 1.0},
+        "total_ms": 9.0,
     }
 
 

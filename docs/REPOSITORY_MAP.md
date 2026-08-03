@@ -55,23 +55,24 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `src/officeagent/application/transactional_ingestion.py` | V2 prepare→single transactional corpus commit |
 | `src/officeagent/application/question_answering.py` | cache→retrieve→abstain/generate→cache |
 | `src/officeagent/application/observability.py` | privacy-safe timing schema, monotonic stage timer와 best-effort JSON sink |
-| `src/officeagent/application/chunking.py` | deterministic page-safe chunks |
+| `src/officeagent/application/chunking.py` | page-safe 문자·proxy-token 이중 상한 chunk와 policy digest |
 | `src/officeagent/application/prompts.py` | canonical grounded prompt, effective cache version과 proxy-budget packing |
 | `src/officeagent/evaluation/` | gold integrity·metric·runner·disposable DB와 CLI |
 | `src/officeagent/domain/models.py` | framework-independent values/events |
 | `src/officeagent/domain/ports.py` | storage/embedding/LLM protocols |
 | `src/officeagent/infrastructure/parsers.py` | PDF/TXT/MD extraction |
 | `src/officeagent/infrastructure/embeddings.py` | FastEmbed vector adapter |
-| `src/officeagent/infrastructure/tokenization.py` | untruncated tiktoken `o200k_base` prompt proxy counter |
+| `src/officeagent/infrastructure/tokenization.py` | untruncated tiktoken `o200k_base` prompt count·source-exact code-point chunk prefix proxy |
 | `src/officeagent/infrastructure/chroma_store.py` | V1 rollback용 persistent vector adapter |
 | `src/officeagent/infrastructure/sqlite_store.py` | V1 rollback용 document/cache/dependency adapter |
 | `src/officeagent/infrastructure/postgres_corpus_store.py` | V2 document/vector/cache/revision 단일 store |
 | `src/officeagent/infrastructure/codex_app_server.py` | allowlisted child environment의 Codex JSON-RPC process/delta adapter |
 | `src/officeagent/infrastructure/structured_answer.py` | 한 필드 Codex JSON의 bounded incremental plaintext decoder |
 | `src/officeagent/infrastructure/migrations.py` | forward-only apply/check와 read-only readiness probe |
-| `src/officeagent/infrastructure/postgres_recovery_drill.py` | default-only disposable logical restore·physical PITR orchestration과 sanitized receipt |
+| `src/officeagent/infrastructure/postgres_recovery_drill.py` | source migration-ledger를 검증하는 disposable logical restore·physical PITR orchestration |
 | `src/officeagent/infrastructure/test_runner.py` | isolated PostgreSQL suite DB lifecycle·credential-name/effective-libpq-target guards |
 | `src/officeagent/migrations/0001_v2_schema.sql` | initial document/vector/cache/revision schema |
+| `src/officeagent/migrations/0002_document_chunking_version.sql` | legacy sentinel을 갖는 document chunking-policy forward migration |
 | `src/` package `__init__.py` files | Python package boundaries only |
 | `scripts/__init__.py` | verification helper package boundary; product wheel에서 제외 |
 | `scripts/live_smoke.py` | out-of-repo cwd·local disposable DB·HTTP/Codex G7 live runner |
@@ -87,7 +88,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | 파일 | 단일 책임 |
 |---|---|
 | `tests/test_health.py` | loopback API host와 credential-free readiness success/failure/timeout boundary |
-| `tests/test_ingestion.py` | multipart, 3 error classes, TXT/PDF persistence |
+| `tests/test_ingestion.py` | multipart, 413/415/422, sanitized chunk-tokenizer 502, TXT/PDF persistence |
 | `tests/test_retrieval.py` | expected source and no-evidence LLM skip |
 | `tests/test_cache_invalidation.py` | exact/similar and dependency invalidation |
 | `tests/test_streaming.py` | SSE sequence/cache/input과 structured-output failure/no-cache boundary |
@@ -106,9 +107,9 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `tests/test_retrobot_runtime.py` | DrvFS mode·early index/HEAD lock·branch pin·사용자 staging/flag 보존·recovery journal 자동 commit 통합 계약 |
 | `tests/test_sqlite_store.py` | version/cache/FK integrity |
 | `tests/test_chroma_store.py` | replace/search cosine behavior |
-| `tests/test_parsers_and_chunking.py` | formats, offsets, stable chunks |
-| `tests/test_migrations.py` | apply/rerun/drift/rollback/history/concurrency integration |
-| `tests/test_postgres_corpus_store.py` | transaction/rollback/cache/revision/concurrency integration |
+| `tests/test_parsers_and_chunking.py` | formats, source-exact code-point offsets, 이중 상한, stable chunk·policy identity |
+| `tests/test_migrations.py` | apply/rerun/drift/rollback/history/concurrency와 legacy chunking-policy backfill |
+| `tests/test_postgres_corpus_store.py` | transaction/rollback/cache/revision/concurrency와 same-byte policy migration |
 | `tests/test_test_container_isolation.py` | Compose runtime·credential isolation |
 | `tests/test_v2_offline_paths.py` | real PostgreSQL/pgvector + in-process FastAPI ASGI ingestion·RAG·cache·SSE contract |
 | `tests/helpers.py` | deterministic fake ports/PDF builder |

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from officeagent.infrastructure.migrations import discover_migrations
 from officeagent.infrastructure.postgres_recovery_drill import (
     DEFAULT_COMPOSE_FILE,
     CommandResult,
@@ -20,17 +21,24 @@ from officeagent.infrastructure.postgres_recovery_drill import (
     validate_local_docker_endpoint,
 )
 
+EXPECTED_MIGRATION_OUTPUT = "\n".join(
+    f"{migration.version}:{migration.checksum}" for migration in discover_migrations()
+)
+
 VALID_OBSERVATION = DrillObservation(
     postgres_major=17,
     vector_version="0.8.6",
+    migration_head="0002",
     logical_marker_count=1,
     logical_schema_present=True,
+    logical_migrations_verified=True,
     base_backup_manifest_verified=True,
     wal_archive_count=2,
     recovered_markers=("base", "before_target"),
     recovery_promoted=True,
     recovery_signal_removed=True,
     recovered_schema_present=True,
+    recovered_migrations_verified=True,
 )
 
 
@@ -49,6 +57,8 @@ def test_receipt_keeps_logical_restore_distinct_from_pitr_and_is_sanitized() -> 
             "pitr": False,
             "marker_count": 1,
             "schema_present": True,
+            "migration_head": "0002",
+            "migration_checksums_verified": True,
         },
         "pitr": {
             "classification": "physical_base_backup_wal_replay",
@@ -60,6 +70,8 @@ def test_receipt_keeps_logical_restore_distinct_from_pitr_and_is_sanitized() -> 
             "promoted": True,
             "recovery_signal_removed": True,
             "schema_present": True,
+            "migration_head": "0002",
+            "migration_checksums_verified": True,
         },
         "cleanup": "completed_before_receipt",
     }
@@ -81,14 +93,17 @@ def test_receipt_keeps_logical_restore_distinct_from_pitr_and_is_sanitized() -> 
     ("field", "unsafe_value", "message"),
     [
         ("postgres_major", 16, "PostgreSQL 17"),
+        ("migration_head", "2", "migration head"),
         ("logical_marker_count", 0, "logical restore"),
         ("logical_schema_present", False, "logical restore"),
+        ("logical_migrations_verified", False, "logical restore"),
         ("base_backup_manifest_verified", False, "base backup"),
         ("wal_archive_count", 0, "WAL archive"),
         ("recovered_markers", ("base", "before_target", "after_target"), "target"),
         ("recovery_promoted", False, "promote"),
         ("recovery_signal_removed", False, "recovery.signal"),
         ("recovered_schema_present", False, "recovered schema"),
+        ("recovered_migrations_verified", False, "recovered schema"),
     ],
 )
 def test_receipt_fails_closed_when_any_restore_proof_is_missing(
@@ -161,6 +176,10 @@ def test_compose_contract_has_no_host_ports_or_persisted_credentials() -> None:
         (compose.replace("recovery.signal", "standby.signal"), "recovery.signal"),
         (compose.replace("${OFFICEAGENT_DRILL_PASSWORD:?required}", "checked-in"), "password"),
         (compose.replace("pg_basebackup", "physical-copy"), "pg_basebackup"),
+        (
+            compose.replace("@primary:5432/officeagent_drill", "@prod:5432/officeagent"),
+            "migration database URL",
+        ),
     ):
         with pytest.raises(DrillError, match=message):
             validate_compose_definition(corrupt)
@@ -203,12 +222,14 @@ def test_cleanup_runs_after_a_mid_drill_failure(tmp_path: Path) -> None:
 
     assert executor.steps[-1] == "cleanup"
     cleanup = executor.arguments[-1]
-    assert cleanup[-5:] == (
+    assert cleanup[-7:] == (
         "--profile",
         "tools",
         "down",
         "--volumes",
         "--remove-orphans",
+        "--rmi",
+        "local",
     )
 
 
@@ -229,6 +250,17 @@ def test_successful_command_plan_proves_actual_target_boundary_before_cleanup(
     receipt = drill.run()
 
     assert receipt["status"] == "PASS"
+    assert executor.steps.index("apply-schema") < executor.steps.index(
+        "primary-migrations"
+    )
+    apply_schema = executor.arguments[executor.steps.index("apply-schema")]
+    assert apply_schema[-5:] == (
+        "run",
+        "--build",
+        "--rm",
+        "--no-deps",
+        "migration",
+    )
     assert executor.steps.index("logical-restore") < executor.steps.index("base-backup")
     assert executor.steps.index("base-verify") < executor.steps.index("insert-before")
     assert executor.steps.index("read-target-time") < executor.steps.index("insert-after")
@@ -251,6 +283,26 @@ def test_cleanup_retries_a_transient_compose_teardown_failure(tmp_path: Path) ->
 
     assert drill.run()["status"] == "PASS"
     assert executor.steps.count("cleanup") == 2
+
+
+def test_migration_manifest_mismatch_fails_closed_and_cleans_up(tmp_path: Path) -> None:
+    compose_path = tmp_path / "compose.recovery-drill.yaml"
+    compose_path.write_text(_valid_compose_text(), encoding="utf-8")
+    executor = FakeExecutor(
+        output_overrides={"logical-migrations": "0001:" + "0" * 64 + "\n"}
+    )
+    drill = PostgresRecoveryDrill(
+        executor=executor,
+        compose_file=compose_path,
+        project_name="officeagent-recovery-a1b2c3d4e5f6",
+        password="ephemeral-only",
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(DrillError, match="logical restore migration ledger"):
+        drill.run()
+
+    assert executor.steps[-1] == "cleanup"
 
 
 def test_terminal_cleanup_failure_names_only_the_disposable_project(tmp_path: Path) -> None:
@@ -310,9 +362,11 @@ class FakeExecutor:
         *,
         fail_step: str | None = None,
         cleanup_failures: int = 0,
+        output_overrides: dict[str, str] | None = None,
     ) -> None:
         self.fail_step = fail_step
         self.cleanup_failures = cleanup_failures
+        self.output_overrides = output_overrides or {}
         self.steps: list[str] = []
         self.arguments: list[tuple[str, ...]] = []
 
@@ -336,16 +390,20 @@ class FakeExecutor:
         outputs = {
             "docker-endpoint": '"unix:///var/run/docker.sock"\n',
             "primary-version": "170006\n",
+            "primary-migrations": EXPECTED_MIGRATION_OUTPUT + "\n",
             "logical-marker-count": "1\n",
-            "logical-schema": "document_chunks\n",
+            "logical-schema": "t\n",
+            "logical-migrations": EXPECTED_MIGRATION_OUTPUT + "\n",
             "read-target-time": "2026-08-04T01:02:03.123456+00:00\n",
             "archive-switch": "000000010000000000000002\n",
             "archive-count": "2\n",
             "recovery-markers": "base\nbefore_target\n",
             "recovery-promoted": "f\n",
-            "recovery-schema": "document_chunks\n",
+            "recovery-schema": "t\n",
+            "recovery-migrations": EXPECTED_MIGRATION_OUTPUT + "\n",
             "recovery-vector-version": "0.8.6\n",
         }
+        outputs.update(self.output_overrides)
         return CommandResult(returncode=0, stdout=outputs.get(step, ""))
 
 
@@ -391,6 +449,12 @@ services:
     environment:
       PGUSER: officeagent_drill_replication
     command: [pg_basebackup]
+  migration:
+    build:
+      dockerfile: Dockerfile.test
+    environment:
+      OFFICEAGENT_DATABASE_URL: postgresql://postgres:${OFFICEAGENT_DRILL_PASSWORD:?required}@primary:5432/officeagent_drill
+    command: ["officeagent-migrate"]
   recovery-prepare:
     command: [touch, /recovery/recovery.signal]
   recovery:

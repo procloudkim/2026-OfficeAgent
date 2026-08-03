@@ -43,6 +43,7 @@ class PostgresCorpusStore:
         filename: str,
         content_type: str,
         content_hash: str,
+        chunking_version: str,
         chunks: Sequence[PreparedChunk],
         embeddings: Sequence[Sequence[float]],
         cache_versions: CacheVersions,
@@ -56,6 +57,7 @@ class PostgresCorpusStore:
                 filename,
                 content_type,
                 content_hash,
+                chunking_version,
                 tuple(chunks),
                 tuple(tuple(vector) for vector in embeddings),
                 cache_versions,
@@ -140,6 +142,7 @@ class PostgresCorpusStore:
         filename: str,
         content_type: str,
         content_hash: str,
+        chunking_version: str,
         chunks: tuple[PreparedChunk, ...],
         embeddings: tuple[tuple[float, ...], ...],
         cache_versions: CacheVersions,
@@ -147,6 +150,7 @@ class PostgresCorpusStore:
     ) -> IngestionResult:
         _validate_prepared_document(
             content_hash,
+            chunking_version,
             chunks,
             embeddings,
             retrieval_threshold,
@@ -162,7 +166,7 @@ class PostgresCorpusStore:
                 )
                 current = connection.execute(
                     """
-                    SELECT document_id::text, version, content_hash
+                    SELECT document_id::text, version, content_hash, chunking_version
                     FROM documents
                     WHERE normalized_key = %s AND ready
                     FOR UPDATE
@@ -170,7 +174,11 @@ class PostgresCorpusStore:
                     (normalized_key,),
                 ).fetchone()
 
-                if current is not None and str(current[2]).strip() == content_hash:
+                if (
+                    current is not None
+                    and str(current[2]).strip() == content_hash
+                    and str(current[3]) == chunking_version
+                ):
                     record = _document_record(
                         connection,
                         str(current[0]),
@@ -198,13 +206,14 @@ class PostgresCorpusStore:
                     document_id = str(current[0])
                     version = int(current[1]) + 1
                     change = DocumentChange.UPDATED
+                chunking_changed = current is not None and str(current[3]) != chunking_version
 
                 connection.execute(
                     """
                     INSERT INTO documents (
                         document_id, version, normalized_key, filename,
-                        mime_type, content_hash, ready
-                    ) VALUES (%s::uuid, %s, %s, %s, %s, %s, false)
+                        mime_type, content_hash, chunking_version, ready
+                    ) VALUES (%s::uuid, %s, %s, %s, %s, %s, %s, false)
                     """,
                     (
                         document_id,
@@ -213,6 +222,7 @@ class PostgresCorpusStore:
                         filename,
                         content_type,
                         content_hash,
+                        chunking_version,
                     ),
                 )
                 _executemany(connection,
@@ -244,6 +254,7 @@ class PostgresCorpusStore:
                 invalidated = _invalidate_for_change(
                     connection,
                     change=change,
+                    chunking_changed=chunking_changed,
                     document_id=document_id,
                     document_version=version,
                     cache_versions=cache_versions,
@@ -495,11 +506,25 @@ def _invalidate_for_change(
     connection: psycopg.Connection,
     *,
     change: DocumentChange,
+    chunking_changed: bool,
     document_id: str,
     document_version: int,
     cache_versions: CacheVersions,
     retrieval_threshold: float,
 ) -> int:
+    if chunking_changed:
+        rows = connection.execute(
+            """
+            UPDATE answer_cache
+            SET active = false,
+                invalidated_at = now(),
+                invalidation_reason = 'chunking_configuration_changed'
+            WHERE active
+            RETURNING cache_id
+            """
+        ).fetchall()
+        return len(rows)
+
     if change is DocumentChange.CREATED:
         rows = connection.execute(
             """
@@ -594,6 +619,7 @@ def _executemany(
 
 def _validate_prepared_document(
     content_hash: str,
+    chunking_version: str,
     chunks: tuple[PreparedChunk, ...],
     embeddings: tuple[tuple[float, ...], ...],
     retrieval_threshold: float,
@@ -602,6 +628,12 @@ def _validate_prepared_document(
         character not in "0123456789abcdef" for character in content_hash.casefold()
     ):
         raise ValueError("content_hash must be a hexadecimal SHA-256 digest")
+    if (
+        not chunking_version.strip()
+        or len(chunking_version) > 256
+        or any(character in chunking_version for character in ("\n", "\r", "\x00"))
+    ):
+        raise ValueError("chunking_version must be a bounded non-blank identifier")
     if not chunks:
         raise ValueError("at least one prepared chunk is required")
     if len(chunks) != len(embeddings):

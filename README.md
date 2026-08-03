@@ -55,7 +55,10 @@ Codex·배포·image publish를 호출하지 않습니다. workflow 파일의 �
 
 별도 opt-in recovery drill은 제품 DB나 Codex를 사용하지 않는 합성 PostgreSQL 17
 cluster에서 논리 복원과 physical PITR를 각각 실행합니다. random Compose project의
-container·volume을 cleanup한 뒤에만 sanitized `PASS`를 출력합니다. 이 로컬 검증은
+container·volume·전용 local image를 cleanup한 뒤에만 sanitized `PASS`를
+출력합니다. 제품
+migration runner로 발견된 모든 migration을 적용하고, 논리 복원과 PITR 양쪽의
+head·checksum ledger와 `chunking_version` schema를 source와 대조합니다. 이 로컬 검증은
 production HA, off-host backup, 보존 정책이나 RPO/RTO 증거가 아닙니다. 상세 안전
 경계와 실패 정리는 [Evaluator Manual §3.3](./docs/EVALUATOR_MANUAL.md#33-일회용-postgresql-복구-drill)이 소유합니다.
 
@@ -170,7 +173,8 @@ DB·migration·pgvector readiness:
 curl http://127.0.0.1:8000/health/ready
 ```
 
-기본 성공 응답은 credential 없이 `status`, `migration_head`, `vector_version`만 반환하고,
+기본 성공 응답은 credential 없이 `status=ready`, `migration_head=0002`,
+`vector_version=0.8.6`만 반환하고,
 DB·migration·pgvector 검사가 실패하거나 기본 5초 bound를 넘으면 내부 예외를 숨긴
 `503`을 반환합니다. Codex 로그인과 LLM 호출은 readiness 조건이 아닙니다.
 Fresh-run 감사가 `OFFICEAGENT_READINESS_INSTANCE_NONCE`에 64자 소문자 hex
@@ -212,7 +216,7 @@ receipt가 유실될 수 있으며, 이 log는 latency SLO나 성능 우위의 �
 | 관심사 | What | Why | How / Trade-off |
 |---|---|---|---|
 | 웹/API | FastAPI + async use case | HTTP/SSE와 application 규칙 분리 | 얇은 route지만 host Codex와 DB 두 runtime이 필요 |
-| 추출 | pypdf + UTF-8 TXT/MD | 세 형식과 page/offset provenance | OCR·semantic chunking은 비범위 |
+| 추출·청킹 | pypdf + UTF-8 TXT/MD + tiktoken `o200k_base` proxy | 세 형식의 page/offset과 page-safe 이중 상한 | 기본 900자(code point)·900 proxy token, 150자 overlap; OCR·grapheme·semantic 경계는 비범위 |
 | 임베딩 | FastEmbed 다국어 MiniLM 384차원 | 한국어 로컬 추론과 API-key 불필요 | 최초 모델 다운로드와 CPU 비용 |
 | 저장·검색 | PostgreSQL 17.10 + pgvector 0.8.6 + Psycopg 3 | document/vector/cache/revision을 한 transaction에 유지 | Docker·migration 운영비, 단일 노드 |
 | 캐시 | exact 우선, cosine similar `0.95`, 세 version identity | 설정 변경 후 stale answer 재사용 방지 | cache reuse 감소, active row soft invalidation |
@@ -233,6 +237,16 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 - `PROMPT_TEMPLATE_VERSION`의 단일 정본은
   `src/officeagent/application/prompts.py`입니다. 제품 cache의 effective prompt
   version은 template, tokenizer proxy identity digest와 input budget을 함께 묶습니다.
+- 제품 chunker는 page를 넘지 않고 Python 기준 900 Unicode code point와 900
+  tiktoken `o200k_base` proxy token을 모두 넘지 않는 경계를 선택하며,
+  overlap은 150자로 계산합니다. 이는 semantic chunking이나 정확한 Codex
+  tokenizer 계약이 아닙니다.
+- chunking policy ID는 algorithm, 문자·proxy-token 상한, overlap과 tokenizer
+  identity를 digest하고 retrieval cache identity에 포함됩니다. 동일한
+  filename·bytes도 저장된 policy와 다르면 `UPDATED`로 재청킹하고
+  active answer cache 전체를 무효화합니다.
+- chunk tokenizer의 load·prefix 산출이 실패하면 embedding·DB commit 전에
+  fail-closed하고 API는 내부 경로나 예외 메시지를 숨긴 `502`를 반환합니다.
 - score gate를 통과한 hit는 완성 prompt를 proxy로 셌을 때 들어가는 순서대로만
   선택합니다. 하나도 들어가지 않으면 Codex와 cache를 호출하지 않고
   `cache_skip_reason="prompt_budget_exceeded"`로 기권합니다. 일부만 들어가면 선택한
@@ -254,8 +268,9 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 | 파일 | 실제 경계 |
 |---|---|
 | `tests/test_v2_offline_paths.py` | in-process FastAPI ASGI TXT/PDF 수집·SSE, parser, PostgreSQL/pgvector RAG, exact/similar cache, 갱신 무효화 |
-| `tests/test_postgres_corpus_store.py` | transaction rollback, ready corpus, 세 version, revision guard, 동일/서로 다른 문서 동시성 |
-| `tests/test_migrations.py` | empty DB, 재실행, checksum/history fail-closed, rollback, advisory lock |
+| `tests/test_postgres_corpus_store.py` | transaction rollback, ready corpus, cache version, chunking-policy reupload, revision guard·동시성 |
+| `tests/test_parsers_and_chunking.py` | page/offset, valid code-point 문자·proxy-token 이중 상한, policy/retrieval digest |
+| `tests/test_migrations.py` | empty DB, 재실행, checksum/history fail-closed, rollback, advisory lock, `0002` legacy backfill |
 | `tests/test_test_container_isolation.py` | Node/Codex/API key/token/.codex 부재와 disposable effective libpq database target |
 | `tests/test_prompts.py` | JSON round-trip, question/evidence/metadata delimiter breakout, version SSOT |
 | `tests/test_prompt_packing.py` | 완성 prompt proxy budget, ranked skip/keep, 선택 citation/cache와 budget 기권 |
@@ -318,14 +333,19 @@ uv run ruff check src tests scripts
 | `OFFICEAGENT_CODEX_OVERALL_TIMEOUT_SECONDS` | `120` |
 | `OFFICEAGENT_CODEX_MAX_CONCURRENT_REQUESTS` | `2` |
 
-`900/150/0.30`은 현재 구현의 초기 기본값입니다. gold v1은 아직 사용자 채택 전이고
-실제 Codex evaluator도 실행하지 않았으므로, 이 값이 품질셋에서 최적화됐거나 기존
-설정보다 우수하다고 주장하지 않습니다.
+`900/150/0.30`은 현재 구현의 초기 기본값입니다. `900`은 chunk의
+Unicode code-point 상한과 `o200k_base` proxy-token 상한에 같이 적용되고
+`150`은 code-point overlap입니다. grapheme cluster 경계는 보장하지 않습니다.
+gold v1은 아직 사용자 채택 전이고 실제 Codex evaluator도
+실행하지 않았으므로, 이 값이 품질셋에서 최적화됐거나 기존 설정보다
+우수하다고 주장하지 않습니다.
 
-동일한 원문을 다시 업로드하면 content hash 기준으로 idempotent 처리됩니다. 따라서 이미
-문서가 들어 있는 DB에서 chunk 설정만 바꾸어도 기존 vector는 자동 재생성되지 않습니다.
-설정을 비교하거나 적용할 때는 일회용/빈 DB를 사용하거나 문서를 명시적으로 다시
-수집해야 합니다.
+`0002` migration은 기존 row의 `chunking_version`을
+`legacy-page-safe-character-v1:unknown-settings`로 표시하지만 배경에서 재청킹하지
+않습니다. 같은 filename과 bytes를 다시 업로드했을 때 content hash와 현재
+policy가 모두 같아야 `UNCHANGED`이며, policy가 다르면 `UPDATED`로 재청킹하고
+active answer cache를 전체 무효화합니다. 따라서 설정 변경 후 기존 문서를
+이관하려면 각 파일을 같은 filename으로 명시적으로 재업로드해야 합니다.
 
 DB port는 기본 `127.0.0.1:15432`에만 공개됩니다. migration 상태 검사는 다음
 명령으로 수행합니다.

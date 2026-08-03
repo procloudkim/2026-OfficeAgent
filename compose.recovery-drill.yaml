@@ -41,7 +41,6 @@ services:
       - primary_data:/var/lib/postgresql/data
       - wal_archive:/archive
       - logical_backup:/logical
-      - ./src/officeagent/migrations:/migrations:ro
       - ./scripts/postgres_recovery_drill_init.sh:/docker-entrypoint-initdb.d/10-recovery-drill-hba.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d officeagent_drill"]
@@ -49,6 +48,16 @@ services:
       timeout: 3s
       retries: 60
       start_period: 3s
+    networks: [drill]
+
+  migration:
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    environment:
+      OFFICEAGENT_DATABASE_URL: postgresql://postgres:${OFFICEAGENT_DRILL_PASSWORD:?required}@primary:5432/officeagent_drill
+    command: ["officeagent-migrate"]
     networks: [drill]
 
   backup-tool:

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import time
 import unicodedata
 from collections.abc import AsyncIterator, Callable
 
+from officeagent.application.chunking import LEGACY_CHARACTER_CHUNKING_VERSION
 from officeagent.application.observability import (
     AnswerPath,
     PipelineOperation,
@@ -54,12 +56,16 @@ def build_retrieval_version(
     limit: int,
     minimum_score: float,
     cache_threshold: float,
+    chunking_version: str = LEGACY_CHARACTER_CHUNKING_VERSION,
 ) -> str:
     """Fingerprint every setting that changes retrieval or semantic cache meaning."""
 
+    if not chunking_version.strip():
+        raise ValueError("chunking_version must not be blank")
+    chunking_digest = hashlib.sha256(chunking_version.encode("utf-8")).hexdigest()
     return (
         f"{RETRIEVAL_PIPELINE_VERSION}:limit={limit}:min={minimum_score:.17g}:"
-        f"cache={cache_threshold:.17g}"
+        f"cache={cache_threshold:.17g}:chunking={chunking_digest}"
     )
 
 
@@ -118,6 +124,7 @@ class QuestionAnsweringService:
                 limit=retrieval_limit,
                 minimum_score=minimum_relevance_score,
                 cache_threshold=cache_similarity_threshold,
+                chunking_version=LEGACY_CHARACTER_CHUNKING_VERSION,
             ),
         )
 

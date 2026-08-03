@@ -95,7 +95,8 @@ skip됐다는 뜻은 아니다.
 이 suite가 증명하는 것:
 
 - migration과 PostgreSQL/pgvector transaction 경계
-- TXT/PDF/Markdown parser와 document version
+- TXT/PDF/Markdown parser, page/offset와 문자·proxy-token 이중 상한 chunk
+- content hash·chunking policy에 따른 document version과 cache invalidation
 - score gate, no-evidence LLM skip, prompt proxy packing과 citation mapping
 - exact/similar cache, version mismatch, invalidation과 revision guard
 - structured output decoder와 SSE/JSON 실패 시 no-cache
@@ -137,9 +138,15 @@ runner는 repository-owned `compose.recovery-drill.yaml`만 사용하고 다음 
 | logical restore | custom `pg_dump` → `template0` 기반 별도 DB → `pg_restore --exit-on-error` | 대표 schema와 `base` marker 1개 | dump 시점의 단일-DB 논리 스냅샷 복원; PITR 아님 |
 | physical PITR | `pg_basebackup -X stream` → `pg_verifybackup` → archived WAL target replay | `base`, `before_target`만 존재; `after_target` 부재; promotion·schema·pgvector 확인 | base backup 이후 지정 시점의 local cluster 복구 |
 
+초기 schema는 현재 제품 image의 `officeagent-migrate`로 적용합니다. runner는
+소스에서 발견한 모든 migration의 version·SHA-256 manifest를 primary와 논리 복원,
+physical recovery server의 `schema_migrations`와 각각 대조합니다. 두 복원
+lane의 head가 `0002`이고 `documents.chunking_version`이 존재해야 PASS입니다.
+
 정상 출력은 cleanup이 끝난 뒤 JSON 한 줄입니다. `logical_restore.pitr`는 `false`,
 `pitr.classification`은 `physical_base_backup_wal_replay`, top-level `status`는 `PASS`여야
-합니다. target timestamp, password, DSN, project/container/volume ID는 receipt에
+합니다. 두 lane의 `migration_head=0002`와 `migration_checksums_verified=true`도
+필수입니다. target timestamp, password, DSN, project/container/volume ID는 receipt에
 포함하지 않습니다. `pg_verifybackup` 성공만으로는 충분하지 않으며 runner가 실제
 recovery server를 기동해 target 양쪽 marker를 확인합니다.
 
@@ -152,18 +159,19 @@ recovery server를 기동해 target 양쪽 marker를 확인합니다.
 - 현재 Docker endpoint가 local Unix socket인지 확인하고 비어 있지 않은
   `DOCKER_HOST`는 실행 전에 거부합니다.
 - 성공·실패·interrupt에서 scoped `down --volumes --remove-orphans`를 최대 세 번
-  시도하며 cleanup 성공 전에는 PASS를 출력하지 않습니다.
+  시도합니다. 전용 migration image도 `--rmi local`로 제거하며 cleanup
+  성공 전에는 PASS를 출력하지 않습니다.
 
 `SIGKILL`, host 종료나 Docker daemon 상실은 process cleanup 자체를 막을 수 있습니다.
 그 경우 먼저 `docker compose ls --all`을 읽어 exact
 `officeagent-recovery-[0-9a-f]{12}` project를 확인한 뒤에만 다음 명령으로 해당
-project의 합성 volume을 제거합니다. 다른 project 이름이나 제품 `officeagent-v2`
+project의 합성 volume과 전용 local image를 제거합니다. 다른 project 이름이나 제품 `officeagent-v2`
 volume에 이 명령을 사용하지 마십시오.
 
 ```bash
 docker compose --file compose.recovery-drill.yaml \
   --project-name officeagent-recovery-<12hex> \
-  --profile tools down --volumes --remove-orphans
+  --profile tools down --volumes --remove-orphans --rmi local
 ```
 
 이 drill은 같은 Docker backend와 local volume store 안에서만 실행됩니다. 따라서
@@ -213,7 +221,7 @@ curl -sS http://127.0.0.1:8000/health/ready
 기본 정상 응답:
 
 ```json
-{"status":"ready","migration_head":"0001","vector_version":"0.8.6"}
+{"status":"ready","migration_head":"0002","vector_version":"0.8.6"}
 ```
 
 이 응답은 DB·migration·pgvector 준비만 뜻한다. Codex 로그인, 모델 품질 또는 외부
@@ -238,9 +246,24 @@ curl -i -F "file=@sample-docs/company-policy.txt;type=text/plain" \
 | `invalidated_cache_entries` | 문서 변경으로 무효화한 cache 수 |
 
 문서 identity는 경로를 제거한 filename을 NFKC·casefold·공백 정규화한 값이다. 같은
-filename과 같은 bytes를 다시 올리면 `unchanged`로 version을 유지하고, 같은 filename의
-내용을 바꾸어 다시 올리면 별도 update endpoint 없이 `updated`와 다음 version을 만든다.
-다른 filename은 새 문서다.
+filename과 bytes를 다시 올렸을 때 저장된 chunking policy까지 현재 policy와
+같아야 `unchanged`로 version을 유지한다. bytes나 policy 중 하나라도 다르면 별도
+update endpoint 없이 `updated`로 새 version을 만든다. policy mismatch는 active
+answer cache 전체를 `chunking_configuration_changed`로 무효화하고, 다른
+filename은 새 문서로 처리한다.
+
+기본 `OFFICEAGENT_CHUNK_SIZE=900`은 page-safe chunk의 900 Unicode code-point 상한과
+tiktoken `o200k_base` 900 proxy-token 상한에 같이 적용된다. overlap은
+`OFFICEAGENT_CHUNK_OVERLAP=150`의 code-point 단위다. grapheme cluster 경계는
+보장하지 않는다. policy ID는 algorithm,
+두 상한, overlap과 tokenizer identity를 digest하고 retrieval cache identity에도
+포함된다. 이 경계는 semantic chunking, 정확한 Codex tokenizer 또는 gold-set
+품질 최적화를 뜻하지 않는다.
+
+`0002` migration은 기존 row를
+`legacy-page-safe-character-v1:unknown-settings`로 표시하고 기존 chunk·cache dependency를
+보존한다. background rechunk는 없다. 이 레거시 row는 해당 파일을 같은 filename으로
+재업로드할 때만 현재 policy로 재청킹된다.
 
 ### 4.4 실제 SSE 질문
 
@@ -336,6 +359,7 @@ fail-closed한다. 정상 결과는 답변 원문·DB URL·workspace path를 제
 | upload `413` | 기본 20 MiB(20,971,520 bytes) 초과 | 파일 크기와 `OFFICEAGENT_MAX_UPLOAD_BYTES` |
 | upload `415` | `.pdf`·`.txt`·`.md` 외 filename extension | extension; MIME은 현재 허용 판정 기준이 아님 |
 | upload/query `422` | 빈 문서·질문 또는 validation 실패 | response `detail`과 입력 |
+| upload `502` | chunk tokenizer proxy load·prefix 산출 실패 | tiktoken encoding cache·runtime log; 내부 예외와 경로는 응답에 노출되지 않음 |
 | query JSON `502` | LLM transport·timeout·structured validation 실패 | API log의 error type, Codex 상태 |
 | query JSON `502` before Codex | tokenizer proxy load/count 실패 | tiktoken encoding cache·runtime log |
 | readiness `503` | DB·migration·pgvector 준비 실패 또는 timeout | DB health와 migration check |

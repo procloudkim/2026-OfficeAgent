@@ -25,7 +25,7 @@ Server SSE를 구현했다. 그러나 SQLite metadata/cache와 Chroma vector가 
 V2의 목표는 제품 API와 Codex host 경계를 유지하면서 다음 상태를 한
 PostgreSQL transaction으로 관리하는 것이다.
 
-- document hash/version/ready 상태
+- document hash/version/chunking policy/ready 상태
 - chunk text/provenance와 384차원 embedding
 - answer cache와 document/version dependency
 - cache invalidation 이력
@@ -40,7 +40,10 @@ PostgreSQL transaction으로 관리하는 것이다.
 ### 2.1 문서 수집
 
 1. 사용자가 PDF, TXT 또는 Markdown 파일을 업로드한다.
-2. 서버는 파일을 파싱·청킹하고 transaction 밖에서 embedding을 계산한다.
+2. 서버는 파일을 파싱하고 기본 900 Unicode code point·900 `o200k_base`
+   proxy token, 150 code-point overlap의 page-safe 경계로 청킹한 뒤 transaction
+   밖에서 embedding을 계산한다. grapheme·semantic 경계나 정확한 Codex
+   tokenizer 계약은 아니다.
 3. 쓰기 직전 stable document key에 transaction-scoped advisory lock을 잡고 현재
    hash/version을 재확인한다.
 4. document, chunk/vector, cache invalidation, corpus revision, ready 상태를 한
@@ -85,7 +88,7 @@ revision이 시작 revision과 같을 때만 cache를 저장한다. 달라졌다
 
 | 대상 | 최소 책임 |
 |---|---|
-| `documents` | stable ID/key, filename, MIME, hash, version, ready, timestamps |
+| `documents` | stable ID/key, filename, MIME, hash, version, chunking policy, ready, timestamps |
 | `document_chunks` | document/version FK, chunk index/text, page/offset, `vector(384)` |
 | `corpus_state` | singleton revision |
 | `answer_cache` | normalized question/vector, answer/citations, config versions, revision, active/invalidation |
@@ -96,9 +99,12 @@ revision이 시작 revision과 같을 때만 cache를 저장한다. 달라졌다
 
 - `CREATED`: 새 ready corpus를 저장하고 corpus 전체 active cache를 soft
   invalidation한다.
-- `UPDATED`: version을 증가시키고 이전 dependency 또는 새 chunk와 cache 질문
-  vector의 관련성 기준에 해당하는 cache를 무효화한다.
-- `UNCHANGED + ready`: revision, chunk와 cache를 바꾸지 않는 no-op이다.
+- `UPDATED`: bytes가 달라지면 version을 증가시키고 이전 dependency 또는 새
+  chunk와 cache 질문 vector의 관련성 기준에 해당하는 cache를 무효화한다.
+  chunking policy만 달라져도 같은 bytes를 새 version으로 재청킹하고 active cache
+  전체를 무효화한다.
+- `UNCHANGED + ready`: content hash와 chunking policy가 모두 현재 입력과 같을 때만
+  revision, chunk와 cache를 바꾸지 않는 no-op이다.
 - embedding/retrieval configuration version이 달라 안전한 관련성 판정을 할 수
   없으면 update 시 전체 active cache를 무효화한다.
 - 무효화 row는 삭제하지 않고 `active=false`, timestamp, reason을 남긴다.
@@ -109,6 +115,10 @@ revision이 시작 revision과 같을 때만 cache를 저장한다. 달라졌다
 - migration advisory lock으로 동시 실행을 직렬화한다.
 - 적용된 파일 checksum이 바뀌면 실패한다.
 - 빈 DB 적용, 재실행 idempotency, 현재 migration 실패 rollback을 검증한다.
+- `0002` forward migration은 기존 row에
+  `legacy-page-safe-character-v1:unknown-settings` sentinel을 저장하고 기존
+  chunk·cache dependency를 보존한다. background rechunk는 하지 않으며,
+  사용자가 같은 filename으로 재업로드할 때만 현재 policy로 이관한다.
 - V1 SQLite/Chroma runtime data는 이관하지 않고 빈 V2 DB로 시작한다.
 
 ### 3.5 Docker와 CI
@@ -137,16 +147,19 @@ message는 payload에 넣지 않는다. 기본 logger 전달은 best-effort라 r
 
 ## 4. 자동화 수용 조건
 
+아래 상태는 이 설계 계약을 닫을 때의 구현 기준선입니다. 현 candidate의
+실행 freshness와 final 판정은 V2 Traceability가 소유합니다.
+
 | ID | 수용 조건 | 현재 상태 |
 |---|---|---|
-| `TEST-01` | in-process FastAPI ASGI TXT/PDF upload → parser → ready document와 pgvector chunk 저장, revision 증가, same-byte no-op | `VERIFIED` |
+| `TEST-01` | in-process FastAPI ASGI TXT/PDF upload → parser → ready document와 pgvector chunk 저장, revision 증가, same-hash+same-policy no-op | `VERIFIED` |
 | `TEST-02` | 한국어 3문서 fixture에서 실제 `<=>` query top-k/citation/score, no-evidence LLM skip | `VERIFIED` |
 | `TEST-03` | exact/similar hit, CREATED/UPDATED/UNCHANGED, dependency·similarity invalidation과 config fallback | `VERIFIED` |
 | `TX-ROLLBACK` | chunk/vector 실패 시 document/cache/revision까지 전체 rollback, 이전 ready corpus 보존 | `VERIFIED` |
 | `TX-CONCURRENCY` | 동일 문서 직렬화, 다른 문서 revision 일관성 | `VERIFIED` |
 | `CACHE-RACE` | LLM 중 corpus 변경 시 stale answer cache 저장 방지 | `VERIFIED` |
 | `MIGRATION` | empty DB, 재실행, checksum mismatch, 실패 rollback | `VERIFIED` |
-| `SSE` | 첫 delta가 completed보다 먼저 전달되고 현재 V2 HEAD에서 실제 Codex live smoke | `VERIFIED` |
+| `SSE` | 첫 delta가 completed보다 먼저 전달되고 기준선 V2 HEAD에서 실제 Codex live smoke | `VERIFIED` |
 | `CLEAN-RUN` | clean checkout에서 README DB/migration/API/test/readiness 절차 성공 | `VERIFIED` |
 | `TIMING` | V1/V2 ingestion과 QA의 실행 stage·terminal path receipt를 process 안에서 한 번 구성 | `PARTIAL`; best-effort sink와 current-SHA hosted 재검증은 별도 |
 
@@ -171,8 +184,11 @@ message는 payload에 넣지 않는다. 기본 logger 전달은 best-effort라 r
 ## 7. 결정 상태
 
 PostgreSQL 17.10 + pgvector 0.8.6, exact cosine, 빈 V2 DB, host Codex와
-DB/test-only Docker 범위는 구현·검증됐습니다. DEC-010·011·013은 P0-08 계약에 따라
+DB/test-only Docker 범위의 기준선은 구현·검증됐습니다. DEC-010·011·013은
+P0-08 계약에 따라
 `main` supersession에 대해 `PROPOSED`로 유지하며, V2 branch 구현 evidence의
-`VERIFIED` 상태와 구분합니다. DEC-012의 structured-output 보류 조건은 DEC-013과
+`VERIFIED` 상태와 구분합니다. DEC-018도 lifecycle은 `PROPOSED`이지만 품질
+영향은 승인된 gold actual run 전까지 `PARTIAL`입니다. DEC-012의 structured-output
+보류 조건은 DEC-013과
 ADR-0005의 protocol/API/live 검증으로 V2 branch에서 supersede했습니다.
 각 claim의 최신 상태는 `docs/V2_REQUIREMENTS_TRACEABILITY.md`만 관리합니다.

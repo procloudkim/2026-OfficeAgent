@@ -885,3 +885,64 @@
 - Phase 2 표에 남아 있던 비표준 `IMPLEMENTED` 상태도 허용된 `PARTIAL`로 정규화했다.
 - schedule·retention·off-host copy·encryption·monitoring, cluster-global object,
   production RPO/RTO와 HA는 계속 증명되지 않았다.
+
+## 2026-08-04 — dual-bound chunking과 policy-aware 재수집
+
+### Why와 경계
+
+- 900자 상한만으로는 한국어·CJK·emoji처럼 token 밀도가 높은 입력의 chunk
+  크기를 일관되게 제한하지 못한다. 하지만 평가 없이 기본 문자 크기를
+  바꾸면 회귀와 품질 변화를 분리하기 어렵다.
+- 따라서 기본 900 code point·150 code-point overlap은 유지하고, 같은 900을 tiktoken
+  `o200k_base` proxy-token 상한으로 추가했다. overlap은 문자 단위이며
+  grapheme·semantic 경계, 정확한 Codex tokenizer, gold-tuned 품질 계약은 아니다.
+
+### TDD와 구현
+
+- source-exact Unicode code-point offset, page 경계, 문자·proxy-token 상한과
+  policy digest 변화를 회귀로 고정했다. grapheme cluster 보존은
+  주장하지 않는다.
+- tokenizer load·prefix 실패는 사용자 `422`로 오분류하지 않고, embedding·DB
+  commit 전에 내부 메시지를 숨긴 `502`로 fail-closed하는 회귀를 추가했다.
+- chunking policy는 algorithm, 문자·token 상한, overlap과 tokenizer identity를
+  digest한다. retrieval version도 이 digest를 포함해 청크 경계가 다른
+  answer cache를 재사용하지 않는다.
+- `0002` forward migration은 `documents.chunking_version`을 추가하고 기존 row를
+  `legacy-page-safe-character-v1:unknown-settings`로 표시한다. 기존 chunk와
+  dependency를 유지하며 background rechunk는 하지 않는다.
+- recovery drill도 제품 migration runner로 발견된 모든 migration을 적용하고,
+  logical·physical 복원의 `schema_migrations` head·checksum과
+  `documents.chunking_version`을 source와 대조하도록 확장했다.
+- 같은 filename·bytes·policy만 `UNCHANGED`이다. same-file reupload의 policy가
+  다르면 `UPDATED`로 재청킹하고 active cache를 전체 무효화한다.
+- 리뷰에서 찾은 다섯 가지 결함을 함께 고정했다. 저장 전 `strip()`이
+  BPE 수를 늘리는 경우를 재검사했고, 청킹·tokenization을 AnyIO worker로
+  옮겨 event loop blocking을 피했다. 기존 prompt-counter import alias를 보존했고,
+  recovery에 source migration ledger 비교를 추가했으며, grapheme-safe로 읽히던
+  문구를 code-point/source-exact 오프셋 계약으로 바꾸었다.
+
+### 실행 증거와 상태
+
+- host에서 Ruff `PASS`, pytest `262 passed, 20 skipped`, documentation validator
+  8 files·69 links `PASS`를 확인했다.
+- canonical Docker suite는 `276 passed, 6 skipped`로 완료됐다.
+- dirty-tree actual recovery drill은 PostgreSQL `17`, pgvector `0.8.6`, logical/PITR
+  `migration_head=0002`와 양쪽 `migration_checksums_verified=true`, archived WAL `6`을
+  확인했다. receipt 전 cleanup 후 recovery prefix container·volume·image는 모두 `0`이었다.
+- 위 실행은 current dirty-tree 증거이다. exact committed SHA의 재실행·영수증
+  전까지 `OPS-05`는 `PARTIAL`이며, 실제 Codex/gold run이 아니므로
+  `INT-CHUNK-01`과 `REQ-09`를 승격하지 않는다.
+
+### Fact check·냉독 경계와 남은 증거
+
+- Settings, composition root, chunker, migration, PostgreSQL write path와 평가자 문서를
+  양방향으로 대조했다. `900`의 이중 상한, `150`의 문자 overlap,
+  `0002` readiness와 same-file 이관 이외의 배경 변환은 주장하지 않는다.
+- tokenizer proxy는 C3에서 검증한 untruncated `encode_ordinary()` 경계를 재사용한다.
+  이번 변경은 chunk 상한과 stale-cache 정합성을 보강하지만 retrieval·answer
+  품질 향상이나 `REQ-09` 가산점을 증명하지 않는다.
+- evaluator 문서 8개를 이전 대화 문맥 없이 다시 읽은 최종 냉독은 tokenizer
+  proxy, `0001` historical/`0002` current, recovery 한계, 환경별 test count와
+  `REQ-09=PARTIAL` 사이에 material contradiction이 없다고 판정했다.
+- 사용자 승인 gold actual run과 final exact-SHA hosted/runtime 영수증 전에는
+  `INT-CHUNK-01`을 `PARTIAL`로 유지한다.

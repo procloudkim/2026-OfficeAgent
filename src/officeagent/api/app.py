@@ -20,6 +20,7 @@ from officeagent.api.schemas import (
     QuestionRequest,
     ReadinessResponse,
 )
+from officeagent.application.chunking import ChunkTokenizationError
 from officeagent.application.ingestion import DocumentIngestion, DocumentTooLargeError
 from officeagent.application.question_answering import QuestionAnsweringService
 from officeagent.domain.models import AnswerEvent, AnswerEventType
@@ -121,6 +122,15 @@ def create_app(services: ServiceContainer | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail=str(exc),
+            ) from None
+        except ChunkTokenizationError as exc:
+            logger.warning(
+                "Document chunk tokenization failed",
+                extra={"error_type": type(exc).__name__, "request_id": request_id},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Document processing failed",
             ) from None
         except (EmptyDocumentError, ValueError) as exc:
             raise HTTPException(
