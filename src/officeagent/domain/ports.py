@@ -37,6 +37,17 @@ class EmbeddingProvider(Protocol):
         """Embed a search query."""
 
 
+class PromptTokenCounter(Protocol):
+    """Count one rendered prompt with a named, deterministic tokenizer proxy."""
+
+    @property
+    def token_counter_version(self) -> str:
+        """Identify the tokenizer whose counts define the prompt budget."""
+
+    async def count_tokens(self, text: str) -> int:
+        """Return the token count for one complete rendered prompt."""
+
+
 class ReadinessProbe(Protocol):
     """Verify product dependencies without invoking the LLM."""
 

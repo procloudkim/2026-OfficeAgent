@@ -186,9 +186,9 @@ answer.completed
 `answer.delta`는 provisional이며 client는 `answer.completed`를 받아야 성공 답변으로
 확정할 수 있습니다. 이미 받은 delta는 후속 오류 때 회수되지 않습니다.
 
-`answer.citation`은 score gate를 통과한 검색 청크의 retrieval provenance입니다.
-모델이 모든 후보 청크를 사용했거나 각 생성 문장이 citation에 의해 entail된다는
-검증은 아닙니다.
+`answer.citation`은 score gate와 prompt proxy budget을 통과한 검색 청크의 retrieval
+provenance입니다. 모델이 모든 후보 청크를 사용했거나 각 생성 문장이 citation에
+의해 entail된다는 검증은 아닙니다.
 
 application service가 실행된 각 upload·JSON question·SSE question은 terminal
 timing receipt를 한 번 만들고, 기본 logger는 이를 `officeagent.pipeline_timing` JSON
@@ -209,6 +209,7 @@ receipt가 유실될 수 있으며, 이 log는 latency SLO나 성능 우위의 �
 | 임베딩 | FastEmbed 다국어 MiniLM 384차원 | 한국어 로컬 추론과 API-key 불필요 | 최초 모델 다운로드와 CPU 비용 |
 | 저장·검색 | PostgreSQL 17.10 + pgvector 0.8.6 + Psycopg 3 | document/vector/cache/revision을 한 transaction에 유지 | Docker·migration 운영비, 단일 노드 |
 | 캐시 | exact 우선, cosine similar `0.95`, 세 version identity | 설정 변경 후 stale answer 재사용 방지 | cache reuse 감소, active row soft invalidation |
+| prompt 크기 | tiktoken `o200k_base` proxy, 기본 `4096` | 완성 prompt가 무제한 커지는 경로 제한 | Codex의 정확한 token/context 보장은 아님 |
 | LLM | Codex App Server `outputSchema` + incremental decoder | ChatGPT 구독 응답을 검증하고 plaintext SSE 유지 | host Node/Codex 로그인과 로컬 decoder 경계 의존 |
 | 재현성 | digest-pinned DB image + isolated test database + hosted quality gate | evaluator와 CI의 검증 순서 고정 | API/Codex는 credential 격리를 위해 host 유지 |
 
@@ -223,7 +224,13 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 - exact/similar hit는 active row와 세 현재 version이 모두 일치할 때만
   허용합니다.
 - `PROMPT_TEMPLATE_VERSION`의 단일 정본은
-  `src/officeagent/application/prompts.py`입니다.
+  `src/officeagent/application/prompts.py`입니다. 제품 cache의 effective prompt
+  version은 template, tokenizer proxy identity digest와 input budget을 함께 묶습니다.
+- score gate를 통과한 hit는 완성 prompt를 proxy로 셌을 때 들어가는 순서대로만
+  선택합니다. 하나도 들어가지 않으면 Codex와 cache를 호출하지 않고
+  `cache_skip_reason="prompt_budget_exceeded"`로 기권합니다. 일부만 들어가면 선택한
+  hit로 답하되 제외된 dependency를 숨긴 cache가 생기지 않도록
+  `cache_skip_reason="prompt_evidence_reduced"`로 cache write를 생략합니다.
 - question, evidence text와 metadata는 하나의 JSON untrusted-data envelope로
   직렬화하고 `<`, `>`, `&`를 JSON escape합니다.
 - delimiter breakout 회귀는 구조적 serialization을 증명하며 prompt injection의
@@ -244,6 +251,7 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 | `tests/test_migrations.py` | empty DB, 재실행, checksum/history fail-closed, rollback, advisory lock |
 | `tests/test_test_container_isolation.py` | Node/Codex/API key/token/.codex 부재와 disposable effective libpq database target |
 | `tests/test_prompts.py` | JSON round-trip, question/evidence/metadata delimiter breakout, version SSOT |
+| `tests/test_prompt_packing.py` | 완성 prompt proxy budget, ranked skip/keep, 선택 citation/cache와 budget 기권 |
 | `tests/test_codex_protocol.py` | output schema, incremental JSON decoding, item binding, Unicode, timeout/retry와 invalid-output fail-closed |
 | `tests/test_streaming.py` | malformed output의 SSE error·JSON 502·no-cache와 live/cache text parity |
 | `tests/test_live_smoke.py` | disposable local DB, live citation/cache/update 전이, sanitized receipt의 offline 계약 |
@@ -297,6 +305,7 @@ uv run ruff check src tests scripts
 | `OFFICEAGENT_RETRIEVAL_LIMIT` | `5` |
 | `OFFICEAGENT_MINIMUM_RELEVANCE_SCORE` | `0.40` |
 | `OFFICEAGENT_CACHE_SIMILARITY_THRESHOLD` | `0.95` |
+| `OFFICEAGENT_PROMPT_INPUT_TOKEN_BUDGET` | `4096` (tiktoken `o200k_base` proxy; valid range `512..65536`) |
 | `OFFICEAGENT_CODEX_FIRST_DELTA_TIMEOUT_SECONDS` | `45` |
 | `OFFICEAGENT_CODEX_OVERALL_TIMEOUT_SECONDS` | `120` |
 | `OFFICEAGENT_CODEX_MAX_CONCURRENT_REQUESTS` | `2` |
@@ -325,7 +334,8 @@ current-SHA 실행 결과와 요구사항별 판정은
 
 - timing log는 구현했지만 benchmark·단계별 성능 gate는 아직 `PLANNED`
 - 이미지 PDF OCR, 문서 삭제 API, 사용자별 corpus, HA/PITR
-- 동일 질문 cache miss single-flight와 semantic answer-level entailment verifier
+- 동일 질문 cache miss single-flight, semantic answer-level entailment verifier와
+  정확한 Codex tokenizer/context headroom 계산
 
 상세 근거:
 

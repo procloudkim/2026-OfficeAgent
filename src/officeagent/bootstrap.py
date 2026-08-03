@@ -9,7 +9,7 @@ import anyio
 
 from officeagent.api.app import ServiceContainer
 from officeagent.application.observability import JsonTimingRecorder
-from officeagent.application.prompts import PROMPT_TEMPLATE_VERSION
+from officeagent.application.prompts import build_prompt_cache_version
 from officeagent.application.question_answering import (
     QuestionAnsweringService,
     build_retrieval_version,
@@ -21,6 +21,7 @@ from officeagent.infrastructure.embeddings import FastEmbedEmbeddingProvider
 from officeagent.infrastructure.migrations import PostgresReadinessProbe, apply_migrations
 from officeagent.infrastructure.postgres_corpus_store import PostgresCorpusStore
 from officeagent.infrastructure.settings import Settings, get_settings
+from officeagent.infrastructure.tokenization import TiktokenPromptTokenCounter
 
 
 async def build_services(settings: Settings | None = None) -> ServiceContainer:
@@ -39,8 +40,12 @@ async def build_services(settings: Settings | None = None) -> ServiceContainer:
         active_settings.embedding_model,
         active_settings.embedding_dimension,
     )
+    prompt_token_counter = TiktokenPromptTokenCounter()
     cache_versions = CacheVersions(
-        prompt_version=PROMPT_TEMPLATE_VERSION,
+        prompt_version=build_prompt_cache_version(
+            token_counter_version=prompt_token_counter.token_counter_version,
+            input_token_budget=active_settings.prompt_input_token_budget,
+        ),
         embedding_version=embeddings.embedding_version,
         retrieval_version=build_retrieval_version(
             limit=active_settings.retrieval_limit,
@@ -75,6 +80,8 @@ async def build_services(settings: Settings | None = None) -> ServiceContainer:
             cache_similarity_threshold=active_settings.cache_similarity_threshold,
             cache_versions=cache_versions,
             corpus_store=corpus,
+            token_counter=prompt_token_counter,
+            prompt_input_token_budget=active_settings.prompt_input_token_budget,
             timing_recorder=timing_recorder,
         ),
         readiness=PostgresReadinessProbe(

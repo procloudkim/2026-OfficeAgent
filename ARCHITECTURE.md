@@ -21,6 +21,7 @@ V1의 SQLite metadata/cache와 Chroma vector mutation은 하나의 transaction�
 - FastEmbed 384차원 embedding
 - PostgreSQL 17.10 + pgvector 0.8.6 단일 CorpusStore
 - Codex App Server incremental LLM gateway
+- 완성 prompt를 세는 tiktoken `o200k_base` proxy와 evidence packing
 - prompt/embedding/retrieval version이 결합된 answer cache
 - exact-SHA lock·host·Docker·readiness를 검증하는 GitHub `quality-gates`
 - 입력 원문을 기록하지 않는 request-scoped structured timing receipt
@@ -77,10 +78,15 @@ prepare를 허용하고 singleton revision row update가 증가를 직렬화합�
 4. cache miss는 corpus revision을 읽은 같은 DB snapshot에서 pgvector exact cosine
    top-k를 조회합니다. score는 `1 - cosine_distance`입니다.
 5. 기본 `0.30` 미만이면 LLM을 호출하거나 cache하지 않고 no-evidence를 반환합니다.
-6. 관련 청크가 있으면 JSON untrusted-data prompt를 Codex에 보냅니다.
-7. LLM 호출과 SSE 동안 DB transaction/lock을 보유하지 않습니다.
-8. 완료 뒤 retrieval 당시 revision이 여전히 현재 revision일 때만 answer cache와
+6. 관련 청크가 있으면 완성 JSON prompt를 tiktoken `o200k_base` proxy로 셉니다. 기본
+   `4096`을 넘으면 retrieval 순서대로 통째로 들어가는 청크만 선택합니다.
+7. 한 청크도 들어가지 않으면 `prompt_budget` 경로로 LLM·citation·cache write를
+   건너뜁니다. 들어가면 선택된 청크만 Codex prompt와 citation에 사용하고, 일부
+   후보를 제외한 답변은 `prompt_evidence_reduced`로 cache하지 않습니다.
+8. LLM 호출과 SSE 동안 DB transaction/lock을 보유하지 않습니다.
+9. 완료 뒤 retrieval 당시 revision이 여전히 현재 revision일 때만 answer cache와
    citation dependency를 저장합니다. 다르면 `cache_skip_reason=corpus_changed`입니다.
+   모든 relevant hit가 prompt에 들어간 답변만 이 단계에 도달합니다.
 
 `CREATED`는 모든 active cache를, `UPDATED`는 기존 dependency와 새 chunk에
 관련성이 생긴 cache의 합집합을 무효화합니다. prompt/embedding/retrieval 구성
@@ -94,7 +100,7 @@ prepare를 허용하고 singleton revision row update가 증가를 직렬화합�
 
 ```json
 {
-  "prompt_version": "grounded-structured-answer-v3",
+  "prompt_version": "grounded-structured-answer-v4:counter=<16-hex>:budget=4096",
   "question": "사용자 질문",
   "evidence": [
     {
@@ -120,8 +126,14 @@ JSON은 deterministic serialization 후 `<`, `>`, `&`를 Unicode escape합니다
 이는 question/evidence/metadata의 delimiter breakout을 막는 구조적 경계이며
 prompt injection의 의미적 완전 차단이나 answer entailment 증거는 아닙니다.
 
-citation은 score gate를 통과한 `Chunk`에서 서버가 만든 retrieval provenance입니다.
-모델이 모든 청크를 실제 사용했는지 확인하는 post-generation verifier는 없습니다.
+citation은 score gate와 prompt proxy budget을 모두 통과한 `Chunk`에서 서버가 만든
+retrieval provenance입니다. 모델이 모든 청크를 실제 사용했는지 확인하는
+post-generation verifier는 없습니다.
+
+이 budget은 tiktoken `o200k_base`가 완성 application prompt를 자르지 않고 센
+proxy입니다. Codex tokenizer, App Server의 추가 context, output reserve나 실제 model
+context limit을 측정하지 않습니다. template, tokenizer package/encoding/policy 또는
+budget 변화는 effective `prompt_version`을 바꾸므로 이전 cache와 섞이지 않습니다.
 
 Codex turn에는 `{"answer": string}` 한 필드 output schema를 적용합니다. 모델의
 structured delta는 전용 decoder가 JSON 문자열 escape와 Unicode surrogate를
@@ -247,7 +259,7 @@ sink 장애는 경고 type만 남기고 제품 결과를 바꾸지 않습니다.
 | `stages_ms` | 허용 stage 중 실행된 항목만, 소수점 3자리 ms |
 | `total_ms` | 유한·비음수이며 각 개별 stage 이상 |
 | `cache_hit` / `cache_match` | `true`일 때만 `exact` 또는 `similar`; 아니면 null |
-| `answer_path` | `cache_hit`, `grounded`, `no_evidence` 또는 null |
+| `answer_path` | `cache_hit`, `grounded`, `no_evidence`, `prompt_budget` 또는 null |
 | `error_type` | message 없는 type name을 허용 문자로 치환하고 80자로 제한; 없으면 생략 |
 
 `PipelineTimer.finish()`는 terminal receipt를 process 안에서 한 번 구성합니다. 기본
@@ -293,7 +305,8 @@ embedding만 double로 교체합니다. 이 경계는 실제 Codex incremental S
 - 단일 노드이며 HA/PITR, OCR, document delete, tenant isolation은 비범위입니다.
 - 동일 질문 cache miss single-flight가 없어 Codex 중복 호출 가능성이 있습니다.
 - 구조화 decoder는 answer 65,536자, raw JSON 1,048,576자, stdio line 8 MiB의
-  로컬 상한을 둡니다. tokenizer 최적화나 answer 의미 검증은 제공하지 않습니다.
+  로컬 상한을 둡니다. prompt proxy budget은 실제 Codex headroom을 보장하지 않고
+  answer 의미 검증도 제공하지 않습니다.
 - threshold `0.30`/`0.95`는 초기값이며 gold-set 최적값이라고 주장하지 않습니다.
 - gold v1은 사용자 채택 전 합성 candidate이며 공개 holdout과 lexical proxy의 한계를
   가집니다.

@@ -95,7 +95,7 @@ skip됐다는 뜻은 아니다.
 
 - migration과 PostgreSQL/pgvector transaction 경계
 - TXT/PDF/Markdown parser와 document version
-- score gate, no-evidence LLM skip, citation mapping
+- score gate, no-evidence LLM skip, prompt proxy packing과 citation mapping
 - exact/similar cache, version mismatch, invalidation과 revision guard
 - structured output decoder와 SSE/JSON 실패 시 no-cache
 
@@ -229,6 +229,15 @@ score `0.30` 이상인 검색 결과가 없으면 HTTP `200`과 고정된 한국
 `cache_skip_reason="no_evidence"`이며 Codex를 호출하지 않는다. SSE도
 `answer.started → answer.delta → answer.completed`로 끝나고 citation은 없다.
 
+검색 결과는 있지만 완성 prompt의 tiktoken `o200k_base` proxy budget에 청크 하나도
+들어가지 않으면 다른 고정 기권 답변을 반환한다. 이때도 `grounded=false`,
+`citations=[]`, `cache_written=false`이고 Codex를 호출하지 않지만
+`cache_skip_reason="prompt_budget_exceeded"`로 원인을 구분한다. 이 budget은 실제
+Codex tokenizer나 전체 App Server context 한도를 보장하지 않는다. 기본값 변경은
+`OFFICEAGENT_PROMPT_INPUT_TOKEN_BUDGET`으로 하며 기존 cache identity도 함께 바뀐다.
+일부 청크만 들어가면 선택된 citation으로 정상 생성하되
+`cache_skip_reason="prompt_evidence_reduced"`와 `cache_written=false`로 끝난다.
+
 ## 5. readiness와 actual live smoke를 구분한다
 
 외부 전송 없는 readiness smoke:
@@ -262,6 +271,7 @@ fail-closed한다. 정상 결과는 답변 원문·DB URL·workspace path를 제
 | upload `415` | `.pdf`·`.txt`·`.md` 외 filename extension | extension; MIME은 현재 허용 판정 기준이 아님 |
 | upload/query `422` | 빈 문서·질문 또는 validation 실패 | response `detail`과 입력 |
 | query JSON `502` | LLM transport·timeout·structured validation 실패 | API log의 error type, Codex 상태 |
+| query JSON `502` before Codex | tokenizer proxy load/count 실패 | tiktoken encoding cache·runtime log |
 | readiness `503` | DB·migration·pgvector 준비 실패 또는 timeout | DB health와 migration check |
 | SSE `answer.error` | stream 시작 뒤 최종 성공 계약 실패 | 앞선 delta를 확정 답변으로 저장하지 않음 |
 

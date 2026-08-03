@@ -19,6 +19,7 @@ dependencies = [
     "pydantic-settings>=2.12,<3",
     "pypdf>=6.5,<7",
     "python-multipart>=0.0.20,<1",
+    "tiktoken>=0.13,<0.14",
     "uvicorn[standard]>=0.41,<1",
 ]
 

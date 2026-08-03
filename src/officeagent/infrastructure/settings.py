@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     retrieval_limit: int = Field(default=5, ge=1, le=20)
     minimum_relevance_score: float = Field(default=0.30, ge=-1.0, le=1.0)
     cache_similarity_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
+    prompt_input_token_budget: int = Field(default=4096, ge=512, le=65_536)
 
     codex_executable: str = "codex"
     codex_workspace_directory_name: str = "codex-workspace"

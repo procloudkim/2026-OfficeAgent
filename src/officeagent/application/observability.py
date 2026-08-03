@@ -55,6 +55,7 @@ class AnswerPath(StrEnum):
     CACHE_HIT = "cache_hit"
     GROUNDED = "grounded"
     NO_EVIDENCE = "no_evidence"
+    PROMPT_BUDGET = "prompt_budget"
 
 
 @dataclass(frozen=True, slots=True)

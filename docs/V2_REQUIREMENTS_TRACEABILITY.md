@@ -7,7 +7,7 @@
 | V1 rollback | `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | 최초 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
 | 제출 결론 | V2 branch 제출 `YES`; `main` merge는 수행하지 않음 |
-| 정직한 잔여 | `PROC-04`는 `PARTIAL`; current-SHA hosted 재검증 필요; gold v1 채택·실제 Codex 평가는 `PARTIAL`; 성능 gate는 `PLANNED` |
+| 정직한 잔여 | `PROC-04`는 `PARTIAL`; current-SHA hosted 재검증 필요; prompt proxy packing은 local candidate evidence; gold v1 채택·실제 Codex 평가는 `PARTIAL`; 성능 gate는 `PLANNED` |
 
 ## 이 문서를 읽는 방법
 
@@ -62,7 +62,7 @@ tests에 두며, 원문 답변·credential·전체 실행 log는 source에 복�
 | `REQ-11` similar cache | exact miss 후 pgvector cosine `>=0.95` | `VERIFIED` |
 | `REQ-12` cache metadata | JSON/SSE hit/match/write/skip field | `VERIFIED` |
 | `REQ-13` 무효화 | CREATED/UPDATED/UNCHANGED, dependency·similarity·version fallback | `VERIFIED` |
-| `REQ-14` prompt | version SSOT, JSON envelope, delimiter round-trip, 설계 문서 | `VERIFIED` |
+| `REQ-14` prompt | version SSOT, JSON envelope, delimiter round-trip, proxy-budget evidence selection과 설계 문서 | `VERIFIED` |
 
 ## 2. Transaction·concurrency·migration
 
@@ -91,6 +91,7 @@ tests에 두며, 원문 답변·credential·전체 실행 log는 source에 복�
 | `P0-SEC-01` | container executable/env/mount/effective DB target | 없음 | `VERIFIED` |
 | `P0-PROMPT-01` | deterministic JSON serialization과 breakout | 없음 | `VERIFIED` |
 | `P0-STRUCT-01` | 한 필드 schema→plaintext projection, protocol/API/cache failure 경계 | actual live만 offline double | `VERIFIED` |
+| `P0-PROMPT-02` | 완성 prompt tiktoken `o200k_base` proxy count, ranked packing, 선택 citation, partial no-cache와 별도 budget 기권 | tokenizer/LLM deterministic double | `IMPLEMENTED` — focused local 회귀 PASS; candidate exact-SHA hosted check 전 |
 
 ### 3.1 제안 품질 평가
 
@@ -179,6 +180,8 @@ host suite의 `175 passed, 18 skipped`는 Compose DB URL·test-container sentine
   수행합니다. 과거 영수증은 현재 제출 증거로 승계하지 않습니다.
 - fake LLM SSE를 actual Codex incremental SSE로 표현하지 않습니다.
 - schema field 존재만으로 lookup/write enforcement를 주장하지 않습니다.
+- tiktoken `o200k_base` proxy budget을 정확한 Codex token/context/output 상한으로 표현하지
+  않습니다. selection policy나 renderer가 바뀌면 prompt template version도 올립니다.
 - `REQ-09`는 core protocol/API/cache, actual live Codex, document parity의 same-SHA
   영수증 중 하나라도 없으면 `PARTIAL`로 내립니다.
 - `PROC-04`는 완전한 worked-day remote chronology 없이는 `PARTIAL`입니다.

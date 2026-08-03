@@ -16,7 +16,12 @@ from officeagent.application.observability import (
     TimingStage,
     outcome_for_exception,
 )
-from officeagent.application.prompts import PROMPT_TEMPLATE_VERSION, build_grounded_prompt
+from officeagent.application.prompts import (
+    PROMPT_TEMPLATE_VERSION,
+    build_grounded_prompt,
+    build_prompt_cache_version,
+    pack_grounded_prompt,
+)
 from officeagent.domain.models import (
     AnswerEvent,
     AnswerEventType,
@@ -29,12 +34,16 @@ from officeagent.domain.ports import (
     EmbeddingProvider,
     LlmGateway,
     MetadataStore,
+    PromptTokenCounter,
     RevisionAwareCorpusStore,
     VectorStore,
 )
 
 NO_EVIDENCE_ANSWER = (
     "업로드된 문서에서 이 질문에 답할 충분한 근거를 찾지 못했습니다."
+)
+PROMPT_BUDGET_ANSWER = (
+    "검색된 근거를 안전한 프롬프트 크기 안에 담을 수 없어 답변을 생성하지 않았습니다."
 )
 
 RETRIEVAL_PIPELINE_VERSION = "cosine-score-v1"
@@ -69,9 +78,27 @@ class QuestionAnsweringService:
         cache_similarity_threshold: float,
         cache_versions: CacheVersions | None = None,
         corpus_store: RevisionAwareCorpusStore | None = None,
+        token_counter: PromptTokenCounter | None = None,
+        prompt_input_token_budget: int | None = None,
         timing_recorder: TimingRecorder | None = None,
         clock: Callable[[], int] = time.perf_counter_ns,
     ) -> None:
+        if (token_counter is None) != (prompt_input_token_budget is None):
+            raise ValueError(
+                "token_counter and prompt_input_token_budget must be configured together"
+            )
+        if prompt_input_token_budget is not None and prompt_input_token_budget < 1:
+            raise ValueError("prompt_input_token_budget must be positive")
+        prompt_version = PROMPT_TEMPLATE_VERSION
+        if token_counter is not None and prompt_input_token_budget is not None:
+            prompt_version = build_prompt_cache_version(
+                token_counter_version=token_counter.token_counter_version,
+                input_token_budget=prompt_input_token_budget,
+            )
+        if cache_versions is not None and cache_versions.prompt_version != prompt_version:
+            raise ValueError(
+                "cache prompt version does not match the configured prompt packing policy"
+            )
         self._metadata_store = metadata_store
         self._vector_store = vector_store
         self._embedding_provider = embedding_provider
@@ -80,10 +107,12 @@ class QuestionAnsweringService:
         self._minimum_relevance_score = minimum_relevance_score
         self._cache_similarity_threshold = cache_similarity_threshold
         self._corpus_store = corpus_store
+        self._token_counter = token_counter
+        self._prompt_input_token_budget = prompt_input_token_budget
         self._timing_recorder = timing_recorder
         self._clock = clock
         self._cache_versions = cache_versions or CacheVersions(
-            prompt_version=PROMPT_TEMPLATE_VERSION,
+            prompt_version=prompt_version,
             embedding_version=embedding_provider.embedding_version,
             retrieval_version=build_retrieval_version(
                 limit=retrieval_limit,
@@ -192,9 +221,46 @@ class QuestionAnsweringService:
                 )
                 return
 
+            selected_hits = tuple(relevant_hits)
+            prompt_evidence_reduced = False
+            if (
+                self._token_counter is not None
+                and self._prompt_input_token_budget is not None
+            ):
+                packed = await pack_grounded_prompt(
+                    cleaned_question,
+                    relevant_hits,
+                    token_counter=self._token_counter,
+                    input_token_budget=self._prompt_input_token_budget,
+                    prompt_version=self._cache_versions.prompt_version,
+                )
+                if packed.prompt is None:
+                    observed_answer_path = AnswerPath.PROMPT_BUDGET
+                    yield AnswerEvent(
+                        AnswerEventType.DELTA,
+                        {"delta": PROMPT_BUDGET_ANSWER},
+                    )
+                    timer.finish(
+                        PipelineOutcome.COMPLETED,
+                        cache_hit=observed_cache_hit,
+                        answer_path=observed_answer_path,
+                    )
+                    yield _completed(
+                        cache_hit=False,
+                        cache_match=None,
+                        grounded=False,
+                        cache_written=False,
+                        cache_skip_reason="prompt_budget_exceeded",
+                    )
+                    return
+                prompt = packed.prompt
+                selected_hits = packed.hits
+                prompt_evidence_reduced = len(selected_hits) != len(relevant_hits)
+            else:
+                prompt = build_grounded_prompt(cleaned_question, selected_hits)
+
             observed_answer_path = AnswerPath.GROUNDED
-            citations = tuple(_to_citation(hit) for hit in relevant_hits)
-            prompt = build_grounded_prompt(cleaned_question, relevant_hits)
+            citations = tuple(_to_citation(hit) for hit in selected_hits)
             answer_parts: list[str] = []
             llm_deltas = self._llm_gateway.stream_answer(prompt).__aiter__()
             try:
@@ -218,32 +284,36 @@ class QuestionAnsweringService:
 
             for citation in citations:
                 yield _citation_event(citation)
-            with timer.measure(TimingStage.CACHE_WRITE):
-                if self._corpus_store is None:
-                    await self._metadata_store.save_cached_answer(
-                        normalized_question=normalized,
-                        question_embedding=query_embedding,
-                        answer=answer,
-                        citations=citations,
-                        cache_versions=self._cache_versions,
-                    )
-                    cache_written = True
-                    cache_skip_reason = None
-                else:
-                    if retrieval_revision is None:
-                        raise RuntimeError(
-                            "revision-aware retrieval did not return a revision"
+            if prompt_evidence_reduced:
+                cache_written = False
+                cache_skip_reason = "prompt_evidence_reduced"
+            else:
+                with timer.measure(TimingStage.CACHE_WRITE):
+                    if self._corpus_store is None:
+                        await self._metadata_store.save_cached_answer(
+                            normalized_question=normalized,
+                            question_embedding=query_embedding,
+                            answer=answer,
+                            citations=citations,
+                            cache_versions=self._cache_versions,
                         )
-                    write_result = await self._corpus_store.save_cached_answer(
-                        normalized_question=normalized,
-                        question_embedding=query_embedding,
-                        answer=answer,
-                        citations=citations,
-                        cache_versions=self._cache_versions,
-                        expected_revision=retrieval_revision,
-                    )
-                    cache_written = write_result.written
-                    cache_skip_reason = write_result.skip_reason
+                        cache_written = True
+                        cache_skip_reason = None
+                    else:
+                        if retrieval_revision is None:
+                            raise RuntimeError(
+                                "revision-aware retrieval did not return a revision"
+                            )
+                        write_result = await self._corpus_store.save_cached_answer(
+                            normalized_question=normalized,
+                            question_embedding=query_embedding,
+                            answer=answer,
+                            citations=citations,
+                            cache_versions=self._cache_versions,
+                            expected_revision=retrieval_revision,
+                        )
+                        cache_written = write_result.written
+                        cache_skip_reason = write_result.skip_reason
             timer.finish(
                 PipelineOutcome.COMPLETED,
                 cache_hit=observed_cache_hit,

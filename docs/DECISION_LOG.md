@@ -18,13 +18,13 @@ remote parity와 runtime freshness는
 ## Register
 
 `DEC-001`~`DEC-009`는 제출 가능한 V1 기준선의 ACTIVE 결정입니다.
-`DEC-010`, `DEC-011`, `DEC-013`은 P0-08 계약에 따라 `PROPOSED` overlay로
+`DEC-010`, `DEC-011`, `DEC-013`~`DEC-016`은 P0-08 계약에 따라 `PROPOSED` overlay로
 유지하며 V1 결정을 대체하지 않습니다. `DEC-012`의 structured-output 보류는
 V2 branch에서 `DEC-013`이 supersede했습니다. 이 lifecycle과 별개로 현재
 구현·검증 evidence는 V2 Traceability에서 판정합니다.
 
 P0-08은 구현 미완료 표지가 아니라 V1 rollback 결정을 `main`에서 자동 supersede하지
-않도록 미리 고정한 review 경계입니다. 즉 DEC-010·011·013은 `main` supersession에 대해
+않도록 미리 고정한 review 경계입니다. 즉 DEC-010·011·013~016은 `main` supersession에 대해
 `PROPOSED`, V2 branch 구현 evidence는 `VERIFIED`이며 두 상태는 모순되지 않습니다.
 
 | ID | Status | What | Why | How | Trade-off | Evidence | ADR |
@@ -44,6 +44,7 @@ P0-08은 구현 미완료 표지가 아니라 V1 rollback 결정을 `main`에서
 | DEC-013 | PROPOSED | Codex의 한 필드 `{"answer": string}` output schema를 strict incremental decoder로 plaintext SSE에 projection한다. | structured-output 가산점과 기계 검증을 추가하면서 실제 streaming과 server-generated citation 계약을 유지한다. | 같은 turn/item만 bind하고 JSON escape·Unicode를 incremental decode한 뒤 completion에서 duplicate/additional key, type, blank, NUL, 크기와 전체 일치를 재검증한다. visible answer 전 transport/timeout만 한 번 재시도한다. | custom parser와 로컬 65,536자/1,048,576자/8 MiB 상한의 유지보수 책임이 생긴다. 이미 전송한 일부 SSE는 오류 시 회수할 수 없으며 schema가 factuality를 보장하지 않는다. | `src/officeagent/infrastructure/structured_answer.py`, `tests/test_codex_protocol.py`, `tests/test_streaming.py`, [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md) | [ADR-0005](adr/ADR-0005-codex-structured-output-streaming.md) |
 | DEC-014 | PROPOSED | upload와 question pipeline에 content-free terminal timing receipt를 한 번 생성한다. | cache/no-evidence/live/error/cancel 경로의 병목을 입력 원문 없이 비교하고 후속 benchmark의 측정 계약을 고정한다. | API UUID를 전달하고 monotonic nanosecond 차이로 실행 stage만 누적한다. LLM stage는 upstream delta 대기만 재며 total은 consumer suspension을 포함할 수 있다. bounded schema를 best-effort logger로 내보낸다. | 단일 process wall-time 계측이며 분산 trace·percentile·SLO가 아니다. logger 실패는 제품을 중단하지 않아 receipt 유실 가능성이 있다. | `src/officeagent/application/observability.py`, `tests/test_timing_observability.py` | — |
 | DEC-015 | PROPOSED | versioned synthetic gold set을 제품 ingestion/Q&A 경계로 실행하고 deterministic metric을 낸다. | retrieval·abstention 회귀를 재현하고 사람의 dataset 채택을 정확한 bytes에 결합한다. | manifest가 case·문서를 hash하고 dev/process-holdout을 분리한다. runner는 disposable loopback DB만 사용하며 retrieval hit/MRR, lexical claim coverage와 exact abstention을 계산한다. | 현재 승인은 `pending`이고 holdout은 공개돼 있다. lexical proxy는 semantic entailment·NLI·factuality가 아니며 실제 Codex 평가는 별도 승인·실행이 필요하다. | `evals/gold/v1`, `src/officeagent/evaluation`, `tests/test_evaluation_*.py` | — |
+| DEC-016 | PROPOSED | 완성 application prompt를 tiktoken `o200k_base` proxy로 세고, 기본 `4096` 안에 드는 retrieval-ordered evidence만 Codex·citation에 사용한다. | 비정상적으로 큰 검색 문맥을 LLM에 그대로 보내는 경로를 제한하면서 작은 top-k를 유지한다. | 전체 prompt fast path 뒤 rank 순서의 greedy keep/oversized skip을 적용한다. 하나도 못 넣으면 `prompt_budget`으로 LLM/cache를 건너뛰고, 일부 제외 답변은 cache하지 않는다. template·counter digest·budget을 effective prompt version에 묶는다. | exact Codex tokenizer·system context·output reserve 보장이 아니며, encoding 최초 load와 repeated count 비용, cache reuse 감소, 큰 상위 hit를 건너뛰는 품질 trade-off가 있다. 의미 entailment도 검증하지 않는다. | `src/officeagent/application/prompts.py`, `src/officeagent/infrastructure/tokenization.py`, `tests/test_prompt_packing.py`, `PROMPT_DESIGN.md` | — |
 
 ## History Policy
 
@@ -56,6 +57,8 @@ P0-08은 구현 미완료 표지가 아니라 V1 rollback 결정을 `main`에서
 - evidence/receipt 상태는 불변 source commit에 연결하고 최신 Submission HEAD는 Control sync에서 갱신한다.
 ## Revision History
 
+- 2026-08-04: tiktoken `o200k_base` proxy의 완성 prompt packing과 cache identity,
+  prompt-budget 기권 경계를 DEC-016으로 기록했다.
 - 2026-08-04: hash·승인·split·disposable DB 경계를 가진 gold evaluator를 DEC-015로
   기록했다. 사용자 채택과 실제 Codex 품질 결과는 아직 주장하지 않는다.
 - 2026-08-03: privacy-safe stage timing source와 failure/cancellation 계약을 DEC-014로

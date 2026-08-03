@@ -770,3 +770,52 @@
   `--require-approved` evidence로 분리한다.
 - 이 캡슐은 product chunk/threshold를 바꾸지 않는다. pending 데이터로 기본값을
   튜닝하거나 공개 holdout을 일반화·성능 우위 증거로 사용하지 않는다.
+
+## 2026-08-04 — untruncated prompt proxy packing과 cache 안전성
+
+### Why
+
+- score gate를 통과한 top-k를 모두 prompt에 넣는 경로에는 완성 prompt 크기 경계가
+  없었다. chunk나 metadata가 커질 때 LLM 호출 전 결정론적으로 줄이는 정책이 필요했다.
+- 이 경계는 실제 Codex context limit을 아는 척하지 않고, 선택·citation·cache 의미가
+  함께 움직여야 한다.
+
+### TDD와 구현
+
+- 최초 RED는 `build_prompt_cache_version` 부재로 test collection이 실패했다. 이후
+  완성 prompt count, rank 순서의 keep/oversized-skip-and-continue, 경계값 `<=`, 아무
+  근거도 못 넣는 별도 기권, 선택 citation과 cache version 계약을 GREEN으로 만들었다.
+- canonical template를 v4로 올리고 template, counter identity digest와 budget을
+  effective prompt cache version에 묶었다. raw operator/model identity는 prompt에
+  넣지 않는다.
+- 기본 proxy budget은 `4096`이고 설정 범위는 `512..65536`이다. 한 hit도 못 넣으면
+  `prompt_budget_exceeded`, 일부만 넣으면 stale dependency를 만들지 않도록
+  `prompt_evidence_reduced`로 cache write를 생략한다.
+- tokenizer load/count 실패는 무제한 경로로 저하하지 않는다. LLM·citation·cache를
+  호출하지 않고 error timing receipt만 남긴다.
+
+### Fact check와 교정
+
+- 첫 구현은 FastEmbed의 공개 `TextEmbedding.token_count()`를 재사용했다. 그러나 설치된
+  source를 역검증하니 embedding tokenizer가 `model_max_length` truncation을 활성화한
+  뒤 count하므로 `4096` 보호가 긴 입력을 과소 계수할 수 있었다. 커밋 전에 이 경로를
+  폐기했다.
+- OpenAI tiktoken 0.13.0의 `o200k_base`와 `encode_ordinary()`로 교체해 special-token
+  모양의 untrusted text를 일반 text로, 완성 문자열 전체를 센다. 실제 adapter에서
+  `"token " * 10000`이 `10001`로 계산돼 truncation 없는 경계를 확인했다.
+- OpenAI 문서대로 model마다 encoding이 다르므로 이는 Codex App Server의 정확한
+  tokenizer, system context, output reserve나 비용 상한이 아니다. 첫 encoding 준비는
+  network 또는 cache가 필요할 수 있다.
+
+### Shower와 검증
+
+- 무맥락 냉독은 proxy 과장, canonical render 순서, skip 후 계속 여부, counter 실패,
+  budget 기권 외부 계약과 제외 hit의 cache dependency 위험을 지적했다. 규범
+  pseudocode·JSON/SSE 실패 의미·version bump 규칙을 문서화하고 일부 제외 답변의
+  cache를 금지했다.
+- 최종 코드리뷰에서 비정상 count의 `ValueError`가 사용자 입력 `422`로 오분류될 수
+  있음을 발견했다. 전용 `PromptTokenCountError`로 원인 예외를 감싸 JSON `502`와 SSE
+  `answer.error`가 내부 메시지를 숨기는 transport 회귀를 추가했다.
+- 핵심 test `10 passed`, prompt/retrieval/stream/cache 회귀 `22 passed`, timing/settings/
+  문서 회귀 `34 passed`와 대상 Ruff를 통과했다. 실제 Codex live와 final exact-SHA
+  hosted check는 이 commit 뒤 새 HEAD에서 다시 확인해야 한다.

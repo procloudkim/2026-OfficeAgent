@@ -56,12 +56,13 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `src/officeagent/application/question_answering.py` | cache→retrieve→abstain/generate→cache |
 | `src/officeagent/application/observability.py` | privacy-safe timing schema, monotonic stage timer와 best-effort JSON sink |
 | `src/officeagent/application/chunking.py` | deterministic page-safe chunks |
-| `src/officeagent/application/prompts.py` | canonical grounded prompt |
+| `src/officeagent/application/prompts.py` | canonical grounded prompt, effective cache version과 proxy-budget packing |
 | `src/officeagent/evaluation/` | gold integrity·metric·runner·disposable DB와 CLI |
 | `src/officeagent/domain/models.py` | framework-independent values/events |
 | `src/officeagent/domain/ports.py` | storage/embedding/LLM protocols |
 | `src/officeagent/infrastructure/parsers.py` | PDF/TXT/MD extraction |
-| `src/officeagent/infrastructure/embeddings.py` | FastEmbed adapter |
+| `src/officeagent/infrastructure/embeddings.py` | FastEmbed vector adapter |
+| `src/officeagent/infrastructure/tokenization.py` | untruncated tiktoken `o200k_base` prompt proxy counter |
 | `src/officeagent/infrastructure/chroma_store.py` | V1 rollback용 persistent vector adapter |
 | `src/officeagent/infrastructure/sqlite_store.py` | V1 rollback용 document/cache/dependency adapter |
 | `src/officeagent/infrastructure/postgres_corpus_store.py` | V2 document/vector/cache/revision 단일 store |
@@ -94,6 +95,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `tests/test_timing_observability.py` | V1/V2·QA timing path, privacy, cancellation과 sink-failure 계약 |
 | `tests/test_evaluation_*.py` | dataset hash·승인·split, lexical metric, runner와 local disposable DB fail-closed 계약 |
 | `tests/test_prompts.py` | client-controlled prompt metadata attribute boundary |
+| `tests/test_prompt_packing.py` | 완성 prompt proxy budget, rank 보존, citation subset, partial no-cache와 budget 기권 |
 | `tests/test_retrobot_hook.py` | hook 입력 metadata·timeline cell·explicit stage/commit 구조 계약 |
 | `tests/test_retrobot_context.py` | 최신 날짜 H2 선택·후속 H2 차단·8 KiB 경계 계약 |
 | `tests/test_retrobot_guard.py` | child env·timeout·UTF-8/size/heading·민감 출력 거부 계약 |
