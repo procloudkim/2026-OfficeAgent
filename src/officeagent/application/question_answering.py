@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 import re
+import time
 import unicodedata
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 
+from officeagent.application.observability import (
+    AnswerPath,
+    PipelineOperation,
+    PipelineOutcome,
+    PipelineTimer,
+    TimingRecorder,
+    TimingStage,
+    outcome_for_exception,
+)
 from officeagent.application.prompts import PROMPT_TEMPLATE_VERSION, build_grounded_prompt
 from officeagent.domain.models import (
     AnswerEvent,
@@ -59,6 +69,8 @@ class QuestionAnsweringService:
         cache_similarity_threshold: float,
         cache_versions: CacheVersions | None = None,
         corpus_store: RevisionAwareCorpusStore | None = None,
+        timing_recorder: TimingRecorder | None = None,
+        clock: Callable[[], int] = time.perf_counter_ns,
     ) -> None:
         self._metadata_store = metadata_store
         self._vector_store = vector_store
@@ -68,6 +80,8 @@ class QuestionAnsweringService:
         self._minimum_relevance_score = minimum_relevance_score
         self._cache_similarity_threshold = cache_similarity_threshold
         self._corpus_store = corpus_store
+        self._timing_recorder = timing_recorder
+        self._clock = clock
         self._cache_versions = cache_versions or CacheVersions(
             prompt_version=PROMPT_TEMPLATE_VERSION,
             embedding_version=embedding_provider.embedding_version,
@@ -78,116 +92,187 @@ class QuestionAnsweringService:
             ),
         )
 
-    async def stream(self, question: str) -> AsyncIterator[AnswerEvent]:
+    async def stream(
+        self,
+        question: str,
+        *,
+        request_id: str | None = None,
+    ) -> AsyncIterator[AnswerEvent]:
         """Yield transport-neutral events while the answer is generated."""
 
-        cleaned_question = question.strip()
-        if not cleaned_question:
-            raise ValueError("Question must not be empty")
-        normalized = normalize_question(cleaned_question)
-        query_embedding = await self._embedding_provider.embed_query(cleaned_question)
-        cache_store = self._corpus_store or self._metadata_store
-        cached = await cache_store.find_cached_answer(
-            normalized_question=normalized,
-            question_embedding=query_embedding,
-            similarity_threshold=self._cache_similarity_threshold,
-            cache_versions=self._cache_versions,
+        timer = PipelineTimer(
+            PipelineOperation.QUESTION_ANSWERING,
+            request_id=request_id,
+            recorder=self._timing_recorder,
+            clock=self._clock,
         )
-        if cached is not None:
-            cache_match = (
-                "exact" if cached.normalized_question == normalized else "similar"
-            )
-            yield _started(cache_hit=True, cache_match=cache_match)
-            async for delta in _replay_cached_answer(cached.answer):
-                yield AnswerEvent(AnswerEventType.DELTA, {"delta": delta})
-            for citation in cached.citations:
-                yield _citation_event(citation)
-            yield _completed(
-                cache_hit=True,
-                cache_match=cache_match,
-                grounded=bool(cached.citations),
-                cache_written=False,
-                cache_skip_reason="cache_hit",
-            )
-            return
+        observed_cache_hit: bool | None = None
+        observed_cache_match: str | None = None
+        observed_answer_path: AnswerPath | None = None
+        try:
+            cleaned_question = question.strip()
+            if not cleaned_question:
+                raise ValueError("Question must not be empty")
+            normalized = normalize_question(cleaned_question)
+            with timer.measure(TimingStage.EMBED):
+                query_embedding = await self._embedding_provider.embed_query(
+                    cleaned_question
+                )
+            cache_store = self._corpus_store or self._metadata_store
+            with timer.measure(TimingStage.CACHE_LOOKUP):
+                cached = await cache_store.find_cached_answer(
+                    normalized_question=normalized,
+                    question_embedding=query_embedding,
+                    similarity_threshold=self._cache_similarity_threshold,
+                    cache_versions=self._cache_versions,
+                )
+            if cached is not None:
+                cache_match = (
+                    "exact" if cached.normalized_question == normalized else "similar"
+                )
+                observed_cache_hit = True
+                observed_cache_match = cache_match
+                observed_answer_path = AnswerPath.CACHE_HIT
+                yield _started(cache_hit=True, cache_match=cache_match)
+                async for delta in _replay_cached_answer(cached.answer):
+                    yield AnswerEvent(AnswerEventType.DELTA, {"delta": delta})
+                for citation in cached.citations:
+                    yield _citation_event(citation)
+                timer.finish(
+                    PipelineOutcome.COMPLETED,
+                    cache_hit=observed_cache_hit,
+                    cache_match=observed_cache_match,
+                    answer_path=observed_answer_path,
+                )
+                yield _completed(
+                    cache_hit=True,
+                    cache_match=cache_match,
+                    grounded=bool(cached.citations),
+                    cache_written=False,
+                    cache_skip_reason="cache_hit",
+                )
+                return
 
-        retrieval_revision: int | None = None
-        if self._corpus_store is None:
-            hits = await self._vector_store.search(
-                query_embedding,
-                limit=self._retrieval_limit,
-            )
-        else:
-            snapshot = await self._corpus_store.retrieve(
-                query_embedding,
-                limit=self._retrieval_limit,
-            )
-            hits = list(snapshot.hits)
-            retrieval_revision = snapshot.revision
-        relevant_hits = [
-            hit for hit in hits if hit.score >= self._minimum_relevance_score
-        ]
-        yield _started(cache_hit=False, cache_match=None)
-        if not relevant_hits:
-            yield AnswerEvent(
-                AnswerEventType.DELTA,
-                {"delta": NO_EVIDENCE_ANSWER},
+            observed_cache_hit = False
+            retrieval_revision: int | None = None
+            with timer.measure(TimingStage.RETRIEVE):
+                if self._corpus_store is None:
+                    hits = await self._vector_store.search(
+                        query_embedding,
+                        limit=self._retrieval_limit,
+                    )
+                else:
+                    snapshot = await self._corpus_store.retrieve(
+                        query_embedding,
+                        limit=self._retrieval_limit,
+                    )
+                    hits = list(snapshot.hits)
+                    retrieval_revision = snapshot.revision
+            relevant_hits = [
+                hit for hit in hits if hit.score >= self._minimum_relevance_score
+            ]
+            yield _started(cache_hit=False, cache_match=None)
+            if not relevant_hits:
+                observed_answer_path = AnswerPath.NO_EVIDENCE
+                yield AnswerEvent(
+                    AnswerEventType.DELTA,
+                    {"delta": NO_EVIDENCE_ANSWER},
+                )
+                timer.finish(
+                    PipelineOutcome.COMPLETED,
+                    cache_hit=observed_cache_hit,
+                    answer_path=observed_answer_path,
+                )
+                yield _completed(
+                    cache_hit=False,
+                    cache_match=None,
+                    grounded=False,
+                    cache_written=False,
+                    cache_skip_reason="no_evidence",
+                )
+                return
+
+            observed_answer_path = AnswerPath.GROUNDED
+            citations = tuple(_to_citation(hit) for hit in relevant_hits)
+            prompt = build_grounded_prompt(cleaned_question, relevant_hits)
+            answer_parts: list[str] = []
+            llm_deltas = self._llm_gateway.stream_answer(prompt).__aiter__()
+            try:
+                while True:
+                    try:
+                        with timer.measure(TimingStage.LLM):
+                            delta = await anext(llm_deltas)
+                    except StopAsyncIteration:
+                        break
+                    if not delta:
+                        continue
+                    answer_parts.append(delta)
+                    yield AnswerEvent(AnswerEventType.DELTA, {"delta": delta})
+            finally:
+                close = getattr(llm_deltas, "aclose", None)
+                if close is not None:
+                    await close()
+            answer = "".join(answer_parts)
+            if not answer.strip():
+                raise RuntimeError("LLM stream completed without answer text")
+
+            for citation in citations:
+                yield _citation_event(citation)
+            with timer.measure(TimingStage.CACHE_WRITE):
+                if self._corpus_store is None:
+                    await self._metadata_store.save_cached_answer(
+                        normalized_question=normalized,
+                        question_embedding=query_embedding,
+                        answer=answer,
+                        citations=citations,
+                        cache_versions=self._cache_versions,
+                    )
+                    cache_written = True
+                    cache_skip_reason = None
+                else:
+                    if retrieval_revision is None:
+                        raise RuntimeError(
+                            "revision-aware retrieval did not return a revision"
+                        )
+                    write_result = await self._corpus_store.save_cached_answer(
+                        normalized_question=normalized,
+                        question_embedding=query_embedding,
+                        answer=answer,
+                        citations=citations,
+                        cache_versions=self._cache_versions,
+                        expected_revision=retrieval_revision,
+                    )
+                    cache_written = write_result.written
+                    cache_skip_reason = write_result.skip_reason
+            timer.finish(
+                PipelineOutcome.COMPLETED,
+                cache_hit=observed_cache_hit,
+                answer_path=observed_answer_path,
             )
             yield _completed(
                 cache_hit=False,
                 cache_match=None,
-                grounded=False,
-                cache_written=False,
-                cache_skip_reason="no_evidence",
+                grounded=True,
+                cache_written=cache_written,
+                cache_skip_reason=cache_skip_reason,
             )
-            return
+        except BaseException as exc:
+            if not timer.finished:
+                timer.finish(
+                    outcome_for_exception(exc),
+                    cache_hit=observed_cache_hit,
+                    cache_match=observed_cache_match,
+                    answer_path=observed_answer_path,
+                    error_type=type(exc).__name__,
+                )
+            raise
 
-        citations = tuple(_to_citation(hit) for hit in relevant_hits)
-        prompt = build_grounded_prompt(cleaned_question, relevant_hits)
-        answer_parts: list[str] = []
-        async for delta in self._llm_gateway.stream_answer(prompt):
-            if not delta:
-                continue
-            answer_parts.append(delta)
-            yield AnswerEvent(AnswerEventType.DELTA, {"delta": delta})
-        answer = "".join(answer_parts)
-        if not answer.strip():
-            raise RuntimeError("LLM stream completed without answer text")
-
-        for citation in citations:
-            yield _citation_event(citation)
-        if self._corpus_store is None:
-            await self._metadata_store.save_cached_answer(
-                normalized_question=normalized,
-                question_embedding=query_embedding,
-                answer=answer,
-                citations=citations,
-                cache_versions=self._cache_versions,
-            )
-            cache_written = True
-            cache_skip_reason = None
-        else:
-            if retrieval_revision is None:
-                raise RuntimeError("revision-aware retrieval did not return a revision")
-            write_result = await self._corpus_store.save_cached_answer(
-                normalized_question=normalized,
-                question_embedding=query_embedding,
-                answer=answer,
-                citations=citations,
-                cache_versions=self._cache_versions,
-                expected_revision=retrieval_revision,
-            )
-            cache_written = write_result.written
-            cache_skip_reason = write_result.skip_reason
-        yield _completed(
-            cache_hit=False,
-            cache_match=None,
-            grounded=True,
-            cache_written=cache_written,
-            cache_skip_reason=cache_skip_reason,
-        )
-
-    async def answer(self, question: str) -> AnswerResult:
+    async def answer(
+        self,
+        question: str,
+        *,
+        request_id: str | None = None,
+    ) -> AnswerResult:
         """Collect the streaming contract for clients that prefer JSON."""
 
         parts: list[str] = []
@@ -197,7 +282,7 @@ class QuestionAnsweringService:
         grounded = False
         cache_written = False
         cache_skip_reason: str | None = None
-        async for event in self.stream(question):
+        async for event in self.stream(question, request_id=request_id):
             if event.type is AnswerEventType.STARTED:
                 cache_hit = bool(event.payload["cache_hit"])
                 raw_match = event.payload.get("cache_match")

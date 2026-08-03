@@ -7,7 +7,7 @@
 | V1 rollback | `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | 최초 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
 | 제출 결론 | V2 branch 제출 `YES`; `main` merge는 수행하지 않음 |
-| 정직한 잔여 | `PROC-04`는 `PARTIAL`; CI source는 구현, hosted check는 `PENDING`; timing log는 `PLANNED` |
+| 정직한 잔여 | `PROC-04`는 `PARTIAL`; C0 hosted CI는 `d86f4c4`에서 PASS, 현재 HEAD는 재검증 필요; 성능 gate는 `PLANNED` |
 
 ## 이 문서를 읽는 방법
 
@@ -79,7 +79,7 @@ tests에 두며, 원문 답변·credential·전체 실행 log는 source에 복�
 | `OPS-01` | digest-pinned PostgreSQL 17.10/pgvector 0.8.6 | `VERIFIED` |
 | `OPS-02` | `/health/ready` DB/migration/vector success·failure·timeout | `VERIFIED` |
 | `OPS-03` | isolated Compose test와 suite별 temporary database | `VERIFIED` |
-| `OPS-04` | raw question/evidence 없는 structured timing log | `PLANNED` — 제출 비목표 |
+| `OPS-04` | raw question/evidence 없는 terminal timing receipt와 best-effort JSON sink | `IMPLEMENTED` — `tests/test_timing_observability.py`와 관련 회귀 PASS; current-SHA hosted check 전 candidate evidence |
 
 ## 3. 공식 테스트와 double 경계
 
@@ -170,6 +170,6 @@ host suite의 `175 passed, 18 skipped`는 Compose DB URL·test-container sentine
 - `PROC-04`는 완전한 worked-day remote chronology 없이는 `PARTIAL`입니다.
 - DEC-010·011·013은 P0-08에 따라 `main` supersession에는 `PROPOSED`, V2 branch
   evidence에는 `VERIFIED`를 유지합니다. DEC-012는 branch에서 DEC-013이 supersede했습니다.
-- CI는 workflow source만 `IMPLEMENTED`이며 실제 candidate check-run 전에는
-  `VERIFIED`로 올리지 않습니다. timing log, backup/restore drill과 HA/PITR는 아직
-  구현했다고 주장하지 않습니다.
+- C0 workflow는 `d86f4c4`의 hosted run #2에서 PASS했지만 이후 HEAD의 증거로
+  승계하지 않습니다. timing source는 구현했어도 benchmark·SLO로 표현하지 않으며,
+  backup/restore drill과 HA/PITR는 아직 구현했다고 주장하지 않습니다.

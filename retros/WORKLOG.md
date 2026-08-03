@@ -670,3 +670,49 @@
   snapshot, validator, non-force remote parity와 final audit을 새로 확인해야 완료다.
 - actual live smoke의 sample 문맥 외부 전송과 non-force push는 사용자 승인 범위에서만
   실행하며, 원문 답변·credential·전체 실행 log는 기록하지 않는다.
+
+## 2026-08-03 — content-free pipeline timing 계약
+
+### Why
+
+- cache hit, no-evidence, 실제 생성, 오류와 취소 경로를 입력 원문 없이 구분할 측정
+  경계가 없었다. 측정 없이 tokenizer, retrieval 또는 운영 성능을 개선했다고 말할 수
+  없으므로 먼저 최소 receipt schema를 고정했다.
+- timing은 성능 우위나 SLO 증거가 아니라 후속 benchmark의 입력이다. 제품 결과보다
+  logger를 우선하지 않도록 sink는 best-effort로 한정했다.
+
+### What과 TDD
+
+- API의 UUID를 V1/V2 ingestion과 JSON/SSE question service에 전달하고
+  `perf_counter_ns()` 차이로 실행된 stage만 누적하는 schema v1 timer를 추가했다.
+- payload는 bounded operation/outcome/stage/path, duration, cache metadata와 sanitized
+  error type만 허용한다. question, filename, document·prompt·answer·citation, DSN,
+  credential과 exception message는 전달하지 않는다.
+- QA는 cache hit·no-evidence·grounded, error와 `GeneratorExit`/`CancelledError`를 한
+  terminal receipt로 구분한다. LLM stage는 모든 upstream `anext()` 대기만 합산하고
+  downstream consumer suspension은 total에만 포함될 수 있다.
+- deterministic clock 회귀가 V1/V2 stage, API request ID, privacy, recorder failure,
+  cancellation, terminal 순서와 duration 불변식을 검증한다. focused timing·문서 suite
+  `18 passed`, 관련 ingestion·streaming·V2 회귀 `35 passed, 3 expected skips`, Ruff와
+  문서 validator를 통과했다.
+
+### Fact check와 Shower
+
+- Python 3.11 표준 문서에서 `perf_counter()`는 짧은 duration 측정용 고해상도
+  counter이고 기준점 자체가 아니라 호출 간 차이만 의미가 있음을 확인했다.
+- 근거 없는 gold-set 튜닝값과 성능 개선 문구가 README에 섞인 것을 발견해 실제 기본
+  `900/150/0.30`으로 복구했다. timing만으로 속도·SLO·percentile을 주장하지 않는다.
+- 무맥락 냉독은 receipt 생성과 sink delivery, SSE terminal, schema와 hosted 상태가
+  섞여 있다고 판정했다. 필드·enum·sentinel·단위, 반복 stage 합산, service 진입 전
+  실패 제외, success/error/cancelled와 best-effort delivery를 Architecture에 분리했다.
+
+### 증거와 남은 경계
+
+- C0 workflow의 `d86f4c4` hosted run #2 PASS는 역사 증거일 뿐 새 HEAD로 승계하지
+  않는다. 이 source commit과 자동 Retrobot companion commit을 push한 뒤 exact
+  companion SHA의 hosted check를 새로 확인한다.
+- 제출-control Wiki snapshot/validator는 안정 브랜치 `3f1bc7d`를 고정하므로 현재
+  feature HEAD와 dirty C1 병렬 작업을 `SOURCE_HEAD/CONTENT_DRIFT`로 정직하게 거부했다.
+  source 완료 판정이나 raw 원문 변경으로 해석하지 않는다.
+- 단일 process logger이므로 delivery exact-once, 영구 보관, 분산 trace, benchmark,
+  HA/PITR를 구현했다고 주장하지 않는다.

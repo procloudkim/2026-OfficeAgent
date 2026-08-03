@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from typing import Protocol
 
 import anyio
 
 from officeagent.application.ingestion import DocumentTooLargeError
+from officeagent.application.observability import (
+    PipelineOperation,
+    PipelineOutcome,
+    PipelineTimer,
+    TimingRecorder,
+    TimingStage,
+    outcome_for_exception,
+)
 from officeagent.domain.models import (
     CacheVersions,
     ExtractedSection,
@@ -51,6 +60,8 @@ class TransactionalIngestionService:
         max_upload_bytes: int,
         cache_versions: CacheVersions,
         retrieval_threshold: float,
+        timing_recorder: TimingRecorder | None = None,
+        clock: Callable[[], int] = time.perf_counter_ns,
     ) -> None:
         if chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
@@ -65,6 +76,8 @@ class TransactionalIngestionService:
         self._max_upload_bytes = max_upload_bytes
         self._cache_versions = cache_versions
         self._retrieval_threshold = retrieval_threshold
+        self._timing_recorder = timing_recorder
+        self._clock = clock
 
     @property
     def max_upload_bytes(self) -> int:
@@ -76,40 +89,59 @@ class TransactionalIngestionService:
         filename: str,
         content_type: str,
         content: bytes,
+        request_id: str | None = None,
     ) -> IngestionResult:
         """Do not reach the DB boundary unless every preparation step succeeds."""
 
-        if len(content) > self._max_upload_bytes:
-            raise DocumentTooLargeError(
-                f"Upload exceeds the {self._max_upload_bytes}-byte limit"
+        timer = PipelineTimer(
+            PipelineOperation.DOCUMENT_INGESTION,
+            request_id=request_id,
+            recorder=self._timing_recorder,
+            clock=self._clock,
+        )
+        try:
+            if len(content) > self._max_upload_bytes:
+                raise DocumentTooLargeError(
+                    f"Upload exceeds the {self._max_upload_bytes}-byte limit"
+                )
+            safe_filename = normalize_filename(filename)
+            with timer.measure(TimingStage.PARSE):
+                sections = await anyio.to_thread.run_sync(
+                    extract_sections,
+                    safe_filename,
+                    content,
+                )
+            chunks = _prepare_chunks(
+                sections, chunk_size=self._chunk_size, overlap=self._chunk_overlap
             )
-        safe_filename = normalize_filename(filename)
-        sections = await anyio.to_thread.run_sync(
-            extract_sections,
-            safe_filename,
-            content,
-        )
-        chunks = _prepare_chunks(
-            sections, chunk_size=self._chunk_size, overlap=self._chunk_overlap
-        )
-        if not chunks:
-            raise EmptyDocumentError("The document does not contain searchable text")
-        embeddings = await self._embedding_provider.embed_documents(
-            [chunk.text for chunk in chunks]
-        )
-        if len(embeddings) != len(chunks):
-            raise ValueError(
-                "Embedding provider returned a vector count different from chunks"
+            if not chunks:
+                raise EmptyDocumentError("The document does not contain searchable text")
+            with timer.measure(TimingStage.EMBED):
+                embeddings = await self._embedding_provider.embed_documents(
+                    [chunk.text for chunk in chunks]
+                )
+            if len(embeddings) != len(chunks):
+                raise ValueError(
+                    "Embedding provider returned a vector count different from chunks"
+                )
+            with timer.measure(TimingStage.PERSIST):
+                result = await self._corpus_writer.commit_document(
+                    filename=safe_filename,
+                    content_type=content_type or "application/octet-stream",
+                    content_hash=hashlib.sha256(content).hexdigest(),
+                    chunks=chunks,
+                    embeddings=embeddings,
+                    cache_versions=self._cache_versions,
+                    retrieval_threshold=self._retrieval_threshold,
+                )
+        except BaseException as exc:
+            timer.finish(
+                outcome_for_exception(exc),
+                error_type=type(exc).__name__,
             )
-        return await self._corpus_writer.commit_document(
-            filename=safe_filename,
-            content_type=content_type or "application/octet-stream",
-            content_hash=hashlib.sha256(content).hexdigest(),
-            chunks=chunks,
-            embeddings=embeddings,
-            cache_versions=self._cache_versions,
-            retrieval_threshold=self._retrieval_threshold,
-        )
+            raise
+        timer.finish(PipelineOutcome.COMPLETED)
+        return result
 
 
 def _prepare_chunks(

@@ -127,9 +127,13 @@ revision이 시작 revision과 같을 때만 cache를 저장한다. 달라졌다
 
 ### 3.6 관찰 가능성과 개인정보 경계
 
-Structured timing log는 `PLANNED`다. 도입 시 `request_id`, DB/retrieval/cache 시간,
-cache match, Codex first-delta만 기록하고 업로드 문서 원문, 질문 본문, credential은
-로그, Git, image, CI cache/artifact에 포함하지 않는다.
+Structured timing receipt는 구현했다. API가 만든 UUID `request_id`,
+operation/outcome, 실행된 parse/embed/persist/cache lookup/retrieve/LLM/cache write와
+total duration, 제한된 cache/answer path 및 오류 type만 JSON schema v1로 구성한다.
+LLM stage는 upstream delta 대기만, total은 pipeline wall time을 뜻한다. 업로드
+filename·문서 원문, 질문, prompt, answer, citation, DSN, credential과 exception
+message는 payload에 넣지 않는다. 기본 logger 전달은 best-effort라 receipt 유실
+가능성이 있으며 benchmark, SLO, 분산 trace 또는 영구 보관 구현이 아니다.
 
 ## 4. 자동화 수용 조건
 
@@ -144,6 +148,7 @@ cache match, Codex first-delta만 기록하고 업로드 문서 원문, 질문 �
 | `MIGRATION` | empty DB, 재실행, checksum mismatch, 실패 rollback | `VERIFIED` |
 | `SSE` | 첫 delta가 completed보다 먼저 전달되고 현재 V2 HEAD에서 실제 Codex live smoke | `VERIFIED` |
 | `CLEAN-RUN` | clean checkout에서 README DB/migration/API/test/readiness 절차 성공 | `VERIFIED` |
+| `TIMING` | V1/V2 ingestion과 QA의 실행 stage·terminal path receipt를 process 안에서 한 번 구성 | `IMPLEMENTED`; best-effort sink와 current-SHA hosted 재검증은 별도 |
 
 ## 5. 비목표
 

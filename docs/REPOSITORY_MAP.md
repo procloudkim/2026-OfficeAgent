@@ -54,6 +54,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `src/officeagent/application/ingestion.py` | extract→version→embed→index→invalidate |
 | `src/officeagent/application/transactional_ingestion.py` | V2 prepare→single transactional corpus commit |
 | `src/officeagent/application/question_answering.py` | cache→retrieve→abstain/generate→cache |
+| `src/officeagent/application/observability.py` | privacy-safe timing schema, monotonic stage timer와 best-effort JSON sink |
 | `src/officeagent/application/chunking.py` | deterministic page-safe chunks |
 | `src/officeagent/application/prompts.py` | canonical grounded prompt |
 | `src/officeagent/domain/models.py` | framework-independent values/events |
@@ -89,6 +90,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `tests/test_codex_protocol.py` | App Server schema/decoder/item/retry/tool/child-environment boundary |
 | `tests/test_live_smoke.py` | disposable DB fail-closed, G7 citation/miss→hit→update→miss, proxy·receipt offline contract |
 | `tests/test_validate_documentation.py` | CI action SHA·candidate ref·금지 marker와 문서 drift 검사 |
+| `tests/test_timing_observability.py` | V1/V2·QA timing path, privacy, cancellation과 sink-failure 계약 |
 | `tests/test_prompts.py` | client-controlled prompt metadata attribute boundary |
 | `tests/test_retrobot_hook.py` | hook 입력 metadata·timeline cell·explicit stage/commit 구조 계약 |
 | `tests/test_retrobot_context.py` | 최신 날짜 H2 선택·후속 H2 차단·8 KiB 경계 계약 |

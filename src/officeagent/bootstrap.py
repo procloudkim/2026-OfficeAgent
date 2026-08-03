@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from functools import partial
 
 import anyio
 
 from officeagent.api.app import ServiceContainer
+from officeagent.application.observability import JsonTimingRecorder
 from officeagent.application.prompts import PROMPT_TEMPLATE_VERSION
 from officeagent.application.question_answering import (
     QuestionAnsweringService,
@@ -51,6 +53,7 @@ async def build_services(settings: Settings | None = None) -> ServiceContainer:
         active_settings,
         repository_root=active_settings.codex_workspace_path,
     )
+    timing_recorder = JsonTimingRecorder(logging.getLogger("uvicorn.error"))
     return ServiceContainer(
         ingestion=TransactionalIngestionService(
             corpus,
@@ -60,6 +63,7 @@ async def build_services(settings: Settings | None = None) -> ServiceContainer:
             max_upload_bytes=active_settings.max_upload_bytes,
             cache_versions=cache_versions,
             retrieval_threshold=active_settings.minimum_relevance_score,
+            timing_recorder=timing_recorder,
         ),
         questions=QuestionAnsweringService(
             corpus,
@@ -71,6 +75,7 @@ async def build_services(settings: Settings | None = None) -> ServiceContainer:
             cache_similarity_threshold=active_settings.cache_similarity_threshold,
             cache_versions=cache_versions,
             corpus_store=corpus,
+            timing_recorder=timing_recorder,
         ),
         readiness=PostgresReadinessProbe(
             active_settings.database_url,

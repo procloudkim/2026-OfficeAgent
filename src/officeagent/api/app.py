@@ -102,6 +102,7 @@ def create_app(services: ServiceContainer | None = None) -> FastAPI:
     async def upload_document(file: Annotated[UploadFile, File()]) -> DocumentResponse:
         """Extract and index one supported document."""
 
+        request_id = str(uuid4())
         ingestion = _services(app).ingestion
         content = await file.read(ingestion.max_upload_bytes + 1)
         try:
@@ -109,6 +110,7 @@ def create_app(services: ServiceContainer | None = None) -> FastAPI:
                 filename=file.filename or "",
                 content_type=file.content_type or "application/octet-stream",
                 content=content,
+                request_id=request_id,
             )
         except UnsupportedDocumentError as exc:
             raise HTTPException(
@@ -145,7 +147,10 @@ def create_app(services: ServiceContainer | None = None) -> FastAPI:
 
         request_id = str(uuid4())
         try:
-            result = await _services(app).questions.answer(request.question)
+            result = await _services(app).questions.answer(
+                request.question,
+                request_id=request_id,
+            )
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -178,7 +183,10 @@ def create_app(services: ServiceContainer | None = None) -> FastAPI:
 
         async def event_stream() -> AsyncIterator[str]:
             try:
-                async for event in _services(app).questions.stream(request.question):
+                async for event in _services(app).questions.stream(
+                    request.question,
+                    request_id=request_id,
+                ):
                     yield _format_sse(event, request_id)
             except Exception:
                 logger.exception(

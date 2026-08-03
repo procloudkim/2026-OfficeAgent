@@ -23,6 +23,7 @@ V1의 SQLite metadata/cache와 Chroma vector mutation은 하나의 transaction�
 - Codex App Server incremental LLM gateway
 - prompt/embedding/retrieval version이 결합된 answer cache
 - exact-SHA lock·host·Docker·readiness를 검증하는 GitHub `quality-gates`
+- 입력 원문을 기록하지 않는 request-scoped structured timing receipt
 
 ### How
 
@@ -218,6 +219,42 @@ Readiness 실패와 timeout은 credential·DSN·내부 exception을 응답하지
 설정값으로 bound됩니다.
 API는 application-owned probe port만 호출하고 Psycopg와 migration 구현을 직접 알지
 않습니다. 실행 상태는 V2 Traceability에서 추적합니다.
+
+### Structured timing 경계
+
+API가 만든 UUID request ID를 application service에 전달하고, ingestion은
+parse/embed/persist를, question path는 embed/cache lookup/retrieve/LLM/cache write를
+측정합니다. 실행되지 않은 stage는 `0`으로 채우지 않고 생략해 cache hit와
+no-evidence 경로를 구분합니다. 반복된 같은 stage는 합산합니다. LLM duration은 모든
+upstream `anext()` 대기의 합이라 그 호출 내부의 retry 대기도 포함할 수 있지만,
+delta를 받은 뒤의 SSE consumer backpressure는 제외합니다. total은 service
+pipeline의 wall time이므로 consumer suspension을 포함할 수 있습니다.
+
+receipt schema는 bounded enum, 유한·비음수 duration, API UUID와 sanitized error
+type만 허용합니다. application을 직접 호출해 유효하지 않은 request ID를 주입하면
+원문 대신 고정 `invalid` sentinel을 기록합니다. question, filename,
+document/prompt/answer/citation, DSN과 exception message는 sink에 전달하지 않습니다.
+sink 장애는 경고 type만 남기고 제품 결과를 바꾸지 않습니다. 단일 process log이므로
+분산 trace, percentile benchmark, SLO와 지속 보관을 증명하지 않습니다.
+
+| schema v1 field | 계약 |
+|---|---|
+| `event` / `schema_version` | 고정 `officeagent.pipeline_timing` / `1` |
+| `request_id` | API UUID v4; 잘못된 직접 주입은 고정 `invalid` |
+| `operation` | `document_ingestion` 또는 `question_answering` |
+| `outcome` | `completed`, `error`, `cancelled` |
+| `stages_ms` | 허용 stage 중 실행된 항목만, 소수점 3자리 ms |
+| `total_ms` | 유한·비음수이며 각 개별 stage 이상 |
+| `cache_hit` / `cache_match` | `true`일 때만 `exact` 또는 `similar`; 아니면 null |
+| `answer_path` | `cache_hit`, `grounded`, `no_evidence` 또는 null |
+| `error_type` | message 없는 type name을 허용 문자로 치환하고 80자로 제한; 없으면 생략 |
+
+`PipelineTimer.finish()`는 terminal receipt를 process 안에서 한 번 구성합니다. 기본
+sink 전달은 best-effort라 delivery exact-once를 보장하지 않습니다. QA 성공은
+`answer.completed`를 yield하기 전에 receipt를 구성하고, service에 도달한 exception은
+`error`, `GeneratorExit`와 `asyncio.CancelledError`는 `cancelled`로 분류합니다. route
+body validation 또는 upload `file.read()`처럼 application service 진입 전에 실패한
+작업은 이 receipt 범위 밖입니다.
 
 ## 9. 검증과 상태
 

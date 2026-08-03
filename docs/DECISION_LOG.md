@@ -42,6 +42,7 @@ P0-08은 구현 미완료 표지가 아니라 V1 rollback 결정을 `main`에서
 | DEC-011 | PROPOSED | answer cache hit는 prompt/embedding/retrieval version이 현재 설정과 모두 일치할 때만 허용한다. | prompt, embedding model 또는 retrieval policy 변경 뒤 오래된 answer를 재사용하지 않는다. | `PROMPT_TEMPLATE_VERSION`을 `prompts.py` 단일 정본으로 두고 PostgreSQL/SQLite lookup·write·invalidation이 세 version을 비교한다. | version 조합별 cache reuse가 줄고 stale row는 soft invalidation 기록으로 남는다. | `tests/test_postgres_corpus_store.py`, `tests/test_v2_offline_paths.py`, [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md) | [ADR-0004](adr/ADR-0004-postgresql-pgvector-storage.md) |
 | DEC-012 | SUPERSEDED by DEC-013 | question/evidence/metadata를 JSON untrusted-data envelope로 만들고 structured LLM output은 별도 spike 전까지 보류한다. | 당시 검증되지 않은 output contract 변경을 막으면서 delimiter breakout을 구조적으로 줄인다. | deterministic JSON serialization과 breakout regression을 먼저 구현했다. | 보류 조건은 DEC-013의 protocol/API/live spike가 충족되어 종료됐다. JSON input envelope와 server-generated citation 결정은 유지한다. | `PROMPT_DESIGN.md`, `tests/test_prompts.py` | — |
 | DEC-013 | PROPOSED | Codex의 한 필드 `{"answer": string}` output schema를 strict incremental decoder로 plaintext SSE에 projection한다. | structured-output 가산점과 기계 검증을 추가하면서 실제 streaming과 server-generated citation 계약을 유지한다. | 같은 turn/item만 bind하고 JSON escape·Unicode를 incremental decode한 뒤 completion에서 duplicate/additional key, type, blank, NUL, 크기와 전체 일치를 재검증한다. visible answer 전 transport/timeout만 한 번 재시도한다. | custom parser와 로컬 65,536자/1,048,576자/8 MiB 상한의 유지보수 책임이 생긴다. 이미 전송한 일부 SSE는 오류 시 회수할 수 없으며 schema가 factuality를 보장하지 않는다. | `src/officeagent/infrastructure/structured_answer.py`, `tests/test_codex_protocol.py`, `tests/test_streaming.py`, [V2 Traceability](V2_REQUIREMENTS_TRACEABILITY.md) | [ADR-0005](adr/ADR-0005-codex-structured-output-streaming.md) |
+| DEC-014 | PROPOSED | upload와 question pipeline에 content-free terminal timing receipt를 한 번 생성한다. | cache/no-evidence/live/error/cancel 경로의 병목을 입력 원문 없이 비교하고 후속 benchmark의 측정 계약을 고정한다. | API UUID를 전달하고 monotonic nanosecond 차이로 실행 stage만 누적한다. LLM stage는 upstream delta 대기만 재며 total은 consumer suspension을 포함할 수 있다. bounded schema를 best-effort logger로 내보낸다. | 단일 process wall-time 계측이며 분산 trace·percentile·SLO가 아니다. logger 실패는 제품을 중단하지 않아 receipt 유실 가능성이 있다. | `src/officeagent/application/observability.py`, `tests/test_timing_observability.py` | — |
 
 ## History Policy
 
@@ -54,6 +55,8 @@ P0-08은 구현 미완료 표지가 아니라 V1 rollback 결정을 `main`에서
 - evidence/receipt 상태는 불변 source commit에 연결하고 최신 Submission HEAD는 Control sync에서 갱신한다.
 ## Revision History
 
+- 2026-08-03: privacy-safe stage timing source와 failure/cancellation 계약을 DEC-014로
+  기록했다. 성능 우위나 SLO는 별도 benchmark 전까지 주장하지 않는다.
 - 2026-08-03: DEC-012의 structured-output 보류 조건을 protocol/API/cache/live spike로
   해소하고 DEC-013으로 supersede했다. JSON input envelope와 server citation은 유지한다.
 - 2026-08-03: DEC-010~012의 current-SHA PostgreSQL, clean launch, 실제 Codex/SSE와

@@ -51,6 +51,11 @@ Codex·배포·image publish를 호출하지 않습니다. workflow 파일의 �
 증거이고, `VERIFIED` 판정에는 해당 candidate SHA의 실제 GitHub check-run이
 추가로 필요합니다.
 
+최초 workflow capsule은 exact head `d86f4c4`의
+[hosted run #2](https://github.com/procloudkim/officeagent-onboarding-challenge/actions/runs/30823239327)에서
+전 단계를 통과했습니다. 이 실행은 이후 HEAD의 증거로 재사용하지 않으며, Draft PR의
+현재 commit마다 새 check 결과를 확인합니다.
+
 ## 제품 실행
 
 제품 API와 Codex는 host에서, PostgreSQL/pgvector는 Docker에서 실행합니다. 로컬
@@ -184,6 +189,16 @@ answer.completed
 모델이 모든 후보 청크를 사용했거나 각 생성 문장이 citation에 의해 entail된다는
 검증은 아닙니다.
 
+application service가 실행된 각 upload·JSON question·SSE question은 terminal
+timing receipt를 한 번 만들고, 기본 logger는 이를 `officeagent.pipeline_timing` JSON
+한 줄로 내보냅니다. timing payload에는 UUID request ID, operation/outcome, 실행된
+stage의 millisecond duration, total, 제한된 cache/answer path와 오류 type만 있습니다.
+질문, filename, 문서·prompt·answer, citation, DSN과 exception message는 payload에
+넣지 않습니다. `perf_counter_ns()` 차이로 재므로 wall-clock 변경의 영향을 받지
+않으며 LLM stage는 upstream delta를 기다린 시간만, total은 stream consumer가 일시
+중단한 시간까지 포함한 pipeline wall time입니다. sink 실패 시 제품 결과를 보존해
+receipt가 유실될 수 있으며, 이 log는 latency SLO나 성능 우위의 증거가 아닙니다.
+
 ## Why–What–How 기술 선택
 
 | 관심사 | What | Why | How / Trade-off |
@@ -232,6 +247,7 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 | `tests/test_streaming.py` | malformed output의 SSE error·JSON 502·no-cache와 live/cache text parity |
 | `tests/test_live_smoke.py` | disposable local DB, live citation/cache/update 전이, sanitized receipt의 offline 계약 |
 | `tests/test_validate_documentation.py` | CI action pin·순서·secret 금지와 evaluator 문서 링크·상태 drift |
+| `tests/test_timing_observability.py` | V1/V2·QA stage timing, cache/no-evidence/error/cancel, privacy와 recorder 장애 격리 |
 | 기존 V1 adapter tests | SQLite/Chroma 기준선 회귀; V2 제품 증거와 구분 |
 
 host의 빠른 unit/legacy 회귀는 DB test를 skip합니다.
@@ -255,13 +271,23 @@ uv run ruff check src tests scripts
 | `OFFICEAGENT_DATABASE_ADMIN_URL` | unset; live smoke만 로컬 product URL에서 `postgres` target을 유도 |
 | `OFFICEAGENT_READINESS_TIMEOUT_SECONDS` | `5` (maximum `30`) |
 | `OFFICEAGENT_MAX_UPLOAD_BYTES` | `20,971,520` (20 MiB) |
-| `OFFICEAGENT_CHUNK_SIZE` / `OFFICEAGENT_CHUNK_OVERLAP` | `900` / `150` |
+| `OFFICEAGENT_CHUNK_SIZE` / `OFFICEAGENT_CHUNK_OVERLAP` | `200` / `50` |
 | `OFFICEAGENT_RETRIEVAL_LIMIT` | `5` |
-| `OFFICEAGENT_MINIMUM_RELEVANCE_SCORE` | `0.30` |
+| `OFFICEAGENT_MINIMUM_RELEVANCE_SCORE` | `0.40` |
 | `OFFICEAGENT_CACHE_SIMILARITY_THRESHOLD` | `0.95` |
 | `OFFICEAGENT_CODEX_FIRST_DELTA_TIMEOUT_SECONDS` | `45` |
 | `OFFICEAGENT_CODEX_OVERALL_TIMEOUT_SECONDS` | `120` |
 | `OFFICEAGENT_CODEX_MAX_CONCURRENT_REQUESTS` | `2` |
+
+`200/50/0.40`은 clean `3f1bc7d` archive, sample 문서 2개와 사람이 승인한 질문
+15건에서 비교한 탐색적 기본값입니다. 기존 `900/150/0.30`보다 answerable gate pass는
+`0.667`에서 `1.000`으로, abstention false-positive는 `0.667`에서 `0.500`으로
+개선됐습니다. 작은 corpus에서 얻은 값이므로 production 최적값으로 해석하지 않습니다.
+
+동일한 원문을 다시 업로드하면 content hash 기준으로 idempotent 처리됩니다. 따라서 이미
+문서가 들어 있는 DB에서 chunk 설정만 바꾸어도 기존 vector는 자동 재생성되지 않습니다.
+설정을 비교하거나 적용할 때는 일회용/빈 DB를 사용하거나 문서를 명시적으로 다시
+수집해야 합니다.
 
 DB port는 기본 `127.0.0.1:15432`에만 공개됩니다. migration 상태 검사는 다음
 명령으로 수행합니다.
@@ -275,7 +301,7 @@ docker compose run --rm migrate officeagent-migrate --check
 current-SHA 실행 결과와 요구사항별 판정은
 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)에서 한 번만 관리합니다.
 
-- structured timing log와 단계별 성능 gate는 아직 `PLANNED`
+- timing log는 구현했지만 benchmark·단계별 성능 gate는 아직 `PLANNED`
 - 이미지 PDF OCR, 문서 삭제 API, 사용자별 corpus, HA/PITR
 - 동일 질문 cache miss single-flight와 answer-level entailment verifier
 
