@@ -7,7 +7,7 @@
 | V1 rollback | `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | 최초 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
 | 제출 결론 | V2 branch 제출 `YES`; `main` merge는 수행하지 않음 |
-| 정직한 잔여 | `PROC-04`는 `PARTIAL`; current-SHA hosted 재검증 필요; prompt proxy packing은 local candidate evidence; gold v1 채택·실제 Codex 평가는 `PARTIAL`; 성능 gate는 `PLANNED` |
+| 정직한 잔여 | `PROC-04`는 `PARTIAL`; final current-SHA profile 재검증 필요; gold v1 채택·실제 Codex 평가는 `PARTIAL`; local recovery drill은 production HA/RPO/RTO 증거가 아님; 성능 gate는 `PLANNED` |
 
 ## 이 문서를 읽는 방법
 
@@ -79,7 +79,12 @@ tests에 두며, 원문 답변·credential·전체 실행 log는 source에 복�
 | `OPS-01` | digest-pinned PostgreSQL 17.10/pgvector 0.8.6 | `VERIFIED` |
 | `OPS-02` | `/health/ready` DB/migration/vector success·failure·timeout | `VERIFIED` |
 | `OPS-03` | isolated Compose test와 suite별 temporary database | `VERIFIED` |
-| `OPS-04` | raw question/evidence 없는 terminal timing receipt와 best-effort JSON sink | `IMPLEMENTED` — `tests/test_timing_observability.py`와 관련 회귀 PASS; current-SHA hosted check 전 candidate evidence |
+| `OPS-04` | raw question/evidence 없는 terminal timing receipt와 best-effort JSON sink | `PARTIAL` — local·과거 hosted 회귀 PASS; final current-SHA bundle 전 |
+| `OPS-05` | 논리 snapshot restore와 physical base backup + archived-WAL target recovery를 분리한 local disposable drill | `PARTIAL` — offline `23 passed`, candidate-tree actual drill·cleanup PASS; exact committed SHA 재검증 전 |
+
+`OPS-05`는 공식 과제 rule이 아닌 선택 운영 증거입니다. local drill 결과를
+production recoverability, RPO/RTO 또는 HA로 승계하지 않으며 `REQ-09`의 점수 판정도
+바꾸지 않습니다.
 
 ## 3. 공식 테스트와 double 경계
 
@@ -91,7 +96,7 @@ tests에 두며, 원문 답변·credential·전체 실행 log는 source에 복�
 | `P0-SEC-01` | container executable/env/mount/effective DB target | 없음 | `VERIFIED` |
 | `P0-PROMPT-01` | deterministic JSON serialization과 breakout | 없음 | `VERIFIED` |
 | `P0-STRUCT-01` | 한 필드 schema→plaintext projection, protocol/API/cache failure 경계 | actual live만 offline double | `VERIFIED` |
-| `P0-PROMPT-02` | 완성 prompt tiktoken `o200k_base` proxy count, ranked packing, 선택 citation, partial no-cache와 별도 budget 기권 | tokenizer/LLM deterministic double | `IMPLEMENTED` — focused local 회귀 PASS; candidate exact-SHA hosted check 전 |
+| `P0-PROMPT-02` | 완성 prompt tiktoken `o200k_base` proxy count, ranked packing, 선택 citation, partial no-cache와 별도 budget 기권 | tokenizer/LLM deterministic double | `PARTIAL` — focused local·과거 hosted 회귀 PASS; final current-SHA bundle 전 |
 
 ### 3.1 제안 품질 평가
 
@@ -168,7 +173,7 @@ host suite의 `175 passed, 18 skipped`는 Compose DB URL·test-container sentine
 |---|---|---|
 | `SOURCE-EVIDENCE` | 8-profile bundle `PASS` | 최종 HEAD의 same-SHA 제출 증거; 계약 gate가 아님 |
 | `OFFICIAL-RULES` | 제출 준비 `PASS` | 과제 원문 rule scorecard; CI workflow를 필수로 요구하지 않음 |
-| `INTERNAL-V2` | CI source `IMPLEMENTED`, check `PENDING` | 실제 PR check-run 전에는 G6를 승격하지 않음 |
+| `INTERNAL-V2` | `PARTIAL` | parent exact-SHA hosted check는 성공; final candidate check 전에는 G6를 승격하지 않음 |
 
 따라서 공식 제출 준비 `PASS`와 자체 내부 계약 `FAIL`은 모순이 아닙니다.
 `REQ-09`는 SCORING 요구로 세 evidence profile에 연결해 `VERIFIED`했지만 필수

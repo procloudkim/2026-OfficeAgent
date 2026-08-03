@@ -148,7 +148,7 @@ message는 payload에 넣지 않는다. 기본 logger 전달은 best-effort라 r
 | `MIGRATION` | empty DB, 재실행, checksum mismatch, 실패 rollback | `VERIFIED` |
 | `SSE` | 첫 delta가 completed보다 먼저 전달되고 현재 V2 HEAD에서 실제 Codex live smoke | `VERIFIED` |
 | `CLEAN-RUN` | clean checkout에서 README DB/migration/API/test/readiness 절차 성공 | `VERIFIED` |
-| `TIMING` | V1/V2 ingestion과 QA의 실행 stage·terminal path receipt를 process 안에서 한 번 구성 | `IMPLEMENTED`; best-effort sink와 current-SHA hosted 재검증은 별도 |
+| `TIMING` | V1/V2 ingestion과 QA의 실행 stage·terminal path receipt를 process 안에서 한 번 구성 | `PARTIAL`; best-effort sink와 current-SHA hosted 재검증은 별도 |
 
 ## 5. 비목표
 

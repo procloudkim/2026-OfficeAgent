@@ -218,6 +218,22 @@ artifact upload step은 없지만 checkout·action·dependency download에는 �
 자동 `GITHUB_TOKEN`과 외부 package registry를 사용합니다. CI 성공은 Codex-free
 회귀 증거이며 실제 Codex/SSE 증거를 대신하지 않습니다.
 
+### Disposable recovery drill 경계
+
+`compose.recovery-drill.yaml`은 기본 제품 Compose와 분리된 opt-in topology입니다.
+논리 경로는 custom `pg_dump`를 별도 database에 `pg_restore`하고, physical 경로만
+`pg_basebackup`과 archived WAL의 `recovery_target_time` replay로 PITR라 부릅니다.
+`pg_verifybackup` 뒤 실제 recovery server에서 target 전·후 marker와 promotion을
+검사하므로 manifest 검사만으로 복구 성공을 주장하지 않습니다.
+
+runner는 비어 있지 않은 `DOCKER_HOST`를 거부하고 선택된 local Unix-socket context만
+허용합니다. repository-owned Compose는 host port 없이 internal network와 random
+project volume을 사용하며 제품 DB·Codex 환경을 전달하지 않습니다. cleanup 성공
+뒤에만 receipt를 출력합니다. 같은 Docker backend와 local volume store를 사용하는
+합성 drill이므로 host/daemon/storage 장애, backup schedule·retention·off-host copy,
+encryption·monitoring, production RPO/RTO 또는 HA를 증명하지 않습니다. 세부 실행과
+수동 잔여물 정리는 [Evaluator Manual](./docs/EVALUATOR_MANUAL.md#33-일회용-postgresql-복구-drill)이 소유합니다.
+
 ## 8. Readiness 경계
 
 `/health/live`는 process liveness만 반환합니다. V2 완료 계약의 `/health/ready`는
@@ -302,7 +318,8 @@ embedding만 double로 교체합니다. 이 경계는 실제 Codex incremental S
   migration, backup/restore 운영비가 생깁니다.
 - exact vector scan은 이번 corpus에 단순하고 결정론적이지만 대규모 latency를
   보장하지 않습니다.
-- 단일 노드이며 HA/PITR, OCR, document delete, tenant isolation은 비범위입니다.
+- 제품은 단일 노드이며 production HA와 recovery control plane, OCR, document delete,
+  tenant isolation은 비범위입니다. 별도 local recovery drill만 존재합니다.
 - 동일 질문 cache miss single-flight가 없어 Codex 중복 호출 가능성이 있습니다.
 - 구조화 decoder는 answer 65,536자, raw JSON 1,048,576자, stdio line 8 MiB의
   로컬 상한을 둡니다. prompt proxy budget은 실제 Codex headroom을 보장하지 않고

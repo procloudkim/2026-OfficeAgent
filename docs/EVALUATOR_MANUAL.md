@@ -18,8 +18,9 @@
 | B. Readiness smoke | Docker, Python, uv | 없음 | 일회용 DB·migration·실제 Uvicorn readiness | 실행 준비 확인 |
 | C. 제품 수동 실행 | 위 항목 + Codex 로그인 | 질문 시 있음 | upload→retrieve→Codex→SSE·citation | API 관찰 |
 | D. Actual live smoke | 위 항목 + 명시적 승인 | 샘플 문서·질문 | miss→hit→update→miss와 실제 delta | 최종 통합 확인 |
+| E. Recovery drill | Docker, Python, uv, local Unix socket | 없음 | 논리 복원과 local physical PITR | 선택 가산점 확인 |
 
-평가자는 A부터 시작한다. D는 필수 단계가 아니다. `scripts.live_smoke`는 공개 sample
+평가자는 A부터 시작한다. D와 E는 필수 단계가 아니다. `scripts.live_smoke`는 공개 sample
 fixture를 사용하더라도 검색 문맥과 질문을 외부 Codex 서비스로 보내므로, 전송을
 승인한 환경에서만 실행한다.
 
@@ -104,7 +105,7 @@ skip됐다는 뜻은 아니다.
 - 실제 Codex 구독·network·모델 품질
 - 한국어 retrieval 설정의 최적성
 - 답변 문장과 citation의 의미적 entailment
-- HA, backup/restore, 대규모 부하 성능
+- 실제 recovery runtime, production HA와 대규모 부하 성능
 
 ### 3.2 정적 검사와 빠른 host suite
 
@@ -116,6 +117,71 @@ uv run pytest
 
 host suite는 Compose DB URL과 isolation sentinel이 없으면 DB 경로를 명시적으로
 skip한다. host와 Docker test 개수를 합산하거나 서로의 대체 증거로 사용하지 않는다.
+
+### 3.3 일회용 PostgreSQL 복구 drill
+
+이 선택 명령은 Codex·제품 database·제품 credential을 사용하지 않습니다. 최초에는
+locked Python 환경과 digest-pinned PostgreSQL 17 image를 내려받을 network 또는
+cache가 필요할 수 있습니다. `DOCKER_HOST` override가 없는 WSL/Linux shell과 local
+Unix-socket Docker context에서만 실행합니다.
+
+```bash
+uv run --frozen python -m officeagent.infrastructure.postgres_recovery_drill
+```
+
+runner는 repository-owned `compose.recovery-drill.yaml`만 사용하고 다음 두 lane을
+의도적으로 구분합니다.
+
+| lane | 실제 실행 | PASS 조건 | 의미 |
+|---|---|---|---|
+| logical restore | custom `pg_dump` → `template0` 기반 별도 DB → `pg_restore --exit-on-error` | 대표 schema와 `base` marker 1개 | dump 시점의 단일-DB 논리 스냅샷 복원; PITR 아님 |
+| physical PITR | `pg_basebackup -X stream` → `pg_verifybackup` → archived WAL target replay | `base`, `before_target`만 존재; `after_target` 부재; promotion·schema·pgvector 확인 | base backup 이후 지정 시점의 local cluster 복구 |
+
+정상 출력은 cleanup이 끝난 뒤 JSON 한 줄입니다. `logical_restore.pitr`는 `false`,
+`pitr.classification`은 `physical_base_backup_wal_replay`, top-level `status`는 `PASS`여야
+합니다. target timestamp, password, DSN, project/container/volume ID는 receipt에
+포함하지 않습니다. `pg_verifybackup` 성공만으로는 충분하지 않으며 runner가 실제
+recovery server를 기동해 target 양쪽 marker를 확인합니다.
+
+기본 topology의 안전 경계는 다음과 같습니다.
+
+- 12자리 random suffix를 가진 `officeagent-recovery-...` Compose project만 생성합니다.
+- host port를 publish하지 않는 internal network와 전용 named volume만 사용합니다.
+- ephemeral password 하나만 좁은 child environment로 전달하고 제품 DB·LLM 변수를
+  차단합니다.
+- 현재 Docker endpoint가 local Unix socket인지 확인하고 비어 있지 않은
+  `DOCKER_HOST`는 실행 전에 거부합니다.
+- 성공·실패·interrupt에서 scoped `down --volumes --remove-orphans`를 최대 세 번
+  시도하며 cleanup 성공 전에는 PASS를 출력하지 않습니다.
+
+`SIGKILL`, host 종료나 Docker daemon 상실은 process cleanup 자체를 막을 수 있습니다.
+그 경우 먼저 `docker compose ls --all`을 읽어 exact
+`officeagent-recovery-[0-9a-f]{12}` project를 확인한 뒤에만 다음 명령으로 해당
+project의 합성 volume을 제거합니다. 다른 project 이름이나 제품 `officeagent-v2`
+volume에 이 명령을 사용하지 마십시오.
+
+```bash
+docker compose --file compose.recovery-drill.yaml \
+  --project-name officeagent-recovery-<12hex> \
+  --profile tools down --volumes --remove-orphans
+```
+
+이 drill은 같은 Docker backend와 local volume store 안에서만 실행됩니다. 따라서
+off-host disaster recovery, schedule·retention, encryption, archive monitoring,
+cluster-global role/tablespace 복원, RPO/RTO/SLO와 HA를 증명하지 않습니다.
+
+용어와 수용 조건은 PostgreSQL 17 공식 문서에 맞춥니다.
+
+- [SQL dump](https://www.postgresql.org/docs/17/backup-dump.html): `pg_dump`는 한 시점의
+  논리 snapshot이며 non-text archive는 `pg_restore`로 복원합니다.
+- [Continuous archiving and PITR](https://www.postgresql.org/docs/17/continuous-archiving.html):
+  logical dump는 WAL replay에 사용할 수 없고, physical base backup 이후의 연속 WAL
+  archive가 PITR의 기반입니다.
+- [`pg_basebackup`](https://www.postgresql.org/docs/17/app-pgbasebackup.html): 실행 중인
+  cluster의 physical base backup을 만듭니다.
+- [`pg_verifybackup`](https://www.postgresql.org/docs/17/app-pgverifybackup.html): manifest
+  검사는 실제 server recovery를 대신하지 않으므로 test restore를 별도로 수행해야
+  합니다.
 
 ## 4. 제품 API를 처음부터 실행한다
 

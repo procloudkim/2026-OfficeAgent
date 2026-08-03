@@ -837,3 +837,51 @@
   README 표와 직접 비교하도록 해 같은 drift를 hosted suite에서 차단한다.
 - 이 교정은 runtime 동작이나 gold dataset을 바꾸지 않으며 `DQ-06` 문서-코드 정합성
   위험만 닫는다.
+
+## 2026-08-04 — 논리 복원과 physical PITR의 분리 검증
+
+### Why와 범위
+
+- PostgreSQL을 단일 저장소로 선택했지만 backup 명령의 존재와 실제 복구 가능성은
+  달랐다. 가산점 증거는 제품 DB를 건드리지 않는 opt-in synthetic drill로 한정했다.
+- `pg_dump`/`pg_restore`는 논리 snapshot restore로, `pg_basebackup` 뒤 archived WAL을
+  지정 시점까지 replay하는 경로만 PITR로 분류한다. 같은 local Docker backend에서의
+  결과를 production HA·RPO/RTO로 승격하지 않는다.
+
+### TDD와 구현
+
+- offline contract가 receipt 분류, 모든 proof의 fail-closed, child environment
+  allowlist, local endpoint, Compose topology, command 순서, interrupt·cleanup retry를
+  고정한다. 최종 focused suite는 `24 passed`다.
+- 실제 runner는 random `officeagent-recovery-<12hex>` project에서 PostgreSQL 17과
+  pgvector migration을 적용한다. custom dump를 별도 DB에 복원한 뒤 physical base
+  backup을 `pg_verifybackup`하고, target 전·후 marker 사이로 WAL recovery한다.
+- CI는 recovery Compose model과 offline contract만 검사한다. 실제 volume 생성·복구
+  drill을 hosted CI가 실행했다고 주장하지 않는다.
+- canonical Docker RED는 새 Compose와 init script가 test image에 없음을 드러냈다.
+  두 파일을 명시적으로 복사하되 기존 Retrobot 격리 COPY 계약은 유지했고, 재실행은
+  `263 passed, 6 skipped`로 GREEN이었다.
+
+### Fact check와 보안 냉독
+
+- PostgreSQL 17 공식 문서는 logical dump가 WAL replay용 backup이 아니며 PITR에는
+  physical base backup과 그 이후의 연속 WAL archive가 필요하다고 설명한다.
+  `pg_verifybackup`도 실제 test restore를 대신하지 않으므로 두 검증을 모두 수행한다.
+- 냉독에서 `DOCKER_HOST` override가 context 검사와 실제 실행 대상을 갈라 원격 daemon을
+  건드릴 수 있음을 발견했다. 비어 있지 않은 override를 거부하고 repository default
+  Compose만 CLI에서 허용했다. recovery health는 단순 `pg_isready`가 아니라
+  `pg_is_in_recovery() = false`까지 기다린다.
+- 실제 Compose 파일 자체의 regression, cleanup 실패 시 random project 식별자,
+  init script의 fresh-clone executable mode `100755` 검증을 추가했다.
+
+### Candidate runtime 증거와 잔여
+
+- 보안 교정된 candidate tree에서 실제 명령이 `PASS`를 반환했다. PostgreSQL major
+  `17`, pgvector `0.8.6`, logical marker `1`, base manifest verified, archived WAL `6`,
+  `base`·`before_target` 존재와 `after_target` 부재, promotion·signal 제거·schema를
+  확인했다. receipt 전 cleanup 뒤 recovery prefix container·volume 잔여는 없었다.
+- 이 실행은 아직 commit SHA에 묶이지 않았으므로 `OPS-05`는 `PARTIAL`이다. source와
+  Retrobot commit 뒤 exact SHA에서 다시 실행하고 hosted check를 확인해야 한다.
+- Phase 2 표에 남아 있던 비표준 `IMPLEMENTED` 상태도 허용된 `PARTIAL`로 정규화했다.
+- schedule·retention·off-host copy·encryption·monitoring, cluster-global object,
+  production RPO/RTO와 HA는 계속 증명되지 않았다.

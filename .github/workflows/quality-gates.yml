@@ -52,6 +52,11 @@ jobs:
       - name: Validate Compose model
         run: docker compose config --quiet
 
+      - name: Validate recovery-drill Compose model
+        env:
+          OFFICEAGENT_DRILL_PASSWORD: ci-model-only
+        run: docker compose --file compose.recovery-drill.yaml --profile tools config --quiet
+
       - name: Build locked test image
         run: docker compose build test
 

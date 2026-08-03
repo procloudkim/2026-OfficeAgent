@@ -15,6 +15,7 @@ App Server 응답을 SSE로 전달하고 문서명·버전·청크 위치를 출
 |---|---|---|---|
 | 빠른 채점 | `docker compose run --build --rm test` | exit code `0` | [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md) |
 | Hosted CI | Draft PR의 `quality-gates` 확인 | exact SHA의 check 성공 | [workflow](./.github/workflows/quality-gates.yml) |
+| 복구 가산점 검증 | `uv run --frozen python -m officeagent.infrastructure.postgres_recovery_drill` | cleanup 뒤 JSON `PASS` | [Evaluator Manual §3.3](./docs/EVALUATOR_MANUAL.md#33-일회용-postgresql-복구-drill) |
 | 품질셋 검토 | `uv run python -m officeagent.evaluation --split dev --verify-only` | `pending`과 고정 dataset SHA | [Gold set v1](./evals/gold/v1/README.md) |
 | 제품 실행 | 아래 `제품 실행` 순서로 DB와 API 시작 | readiness `200`, upload `201` | [Evaluator Manual](./docs/EVALUATOR_MANUAL.md) |
 | 설계 검토 | transaction·SSE·cache 경계 확인 | 선택 이유와 비범위 식별 | [Architecture](./ARCHITECTURE.md) |
@@ -51,6 +52,12 @@ HTTP readiness를 순서대로 실행한 뒤 평가자 문서 링크와 상태 �
 Codex·배포·image publish를 호출하지 않습니다. workflow 파일의 존재는 구현
 증거이고, `VERIFIED` 판정에는 해당 candidate SHA의 실제 GitHub check-run이
 추가로 필요합니다.
+
+별도 opt-in recovery drill은 제품 DB나 Codex를 사용하지 않는 합성 PostgreSQL 17
+cluster에서 논리 복원과 physical PITR를 각각 실행합니다. random Compose project의
+container·volume을 cleanup한 뒤에만 sanitized `PASS`를 출력합니다. 이 로컬 검증은
+production HA, off-host backup, 보존 정책이나 RPO/RTO 증거가 아닙니다. 상세 안전
+경계와 실패 정리는 [Evaluator Manual §3.3](./docs/EVALUATOR_MANUAL.md#33-일회용-postgresql-복구-drill)이 소유합니다.
 
 최초 workflow capsule은 exact head `d86f4c4`의
 [hosted run #2](https://github.com/procloudkim/officeagent-onboarding-challenge/actions/runs/30823239327)에서
@@ -258,6 +265,7 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 | `tests/test_validate_documentation.py` | CI action pin·순서·secret 금지와 evaluator 문서 링크·상태 drift |
 | `tests/test_timing_observability.py` | V1/V2·QA stage timing, cache/no-evidence/error/cancel, privacy와 recorder 장애 격리 |
 | `tests/test_evaluation_*.py` | gold hash·승인·split, lexical metric, product boundary와 disposable local DB 격리 |
+| `tests/test_postgres_recovery_drill.py` | local-only Docker target, credential 차단, 논리 복원/PITR 구분, target 경계와 cleanup 계약 |
 | 기존 V1 adapter tests | SQLite/Chroma 기준선 회귀; V2 제품 증거와 구분 |
 
 ### 제안 gold set과 evaluator
@@ -332,7 +340,8 @@ current-SHA 실행 결과와 요구사항별 판정은
 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)에서 한 번만 관리합니다.
 
 - timing log는 구현했지만 benchmark·단계별 성능 gate는 아직 `PLANNED`
-- 이미지 PDF OCR, 문서 삭제 API, 사용자별 corpus, HA/PITR
+- 이미지 PDF OCR, 문서 삭제 API, 사용자별 corpus, production HA
+- backup schedule·보존·off-host copy·암호화·monitoring과 production RPO/RTO
 - 동일 질문 cache miss single-flight, semantic answer-level entailment verifier와
   정확한 Codex tokenizer/context headroom 계산
 

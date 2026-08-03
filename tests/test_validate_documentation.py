@@ -23,6 +23,7 @@ steps:
   - run: uv run ruff check --no-cache .
   - run: uv run pytest -q
   - run: docker compose config --quiet
+  - run: docker compose --file compose.recovery-drill.yaml --profile tools config --quiet
   - run: docker compose build test
   - run: docker compose up -d --wait db
   - run: docker compose run --rm migrate

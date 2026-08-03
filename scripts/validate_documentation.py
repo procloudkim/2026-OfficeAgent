@@ -34,6 +34,7 @@ _WORKFLOW_COMMANDS = (
     "ruff check --no-cache .",
     "pytest -q",
     "docker compose config --quiet",
+    "docker compose --file compose.recovery-drill.yaml --profile tools config --quiet",
     "docker compose build test",
     "docker compose up -d --wait db",
     "docker compose run --rm migrate",

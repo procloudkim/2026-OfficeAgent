@@ -1,0 +1,120 @@
+x-postgres-image: &postgres-image
+  pgvector/pgvector:0.8.6-pg17-bookworm@sha256:f193b9c848deb27b0e892f85ed07b53fd83ccb1feb634ba415b1cdc44411bedc
+
+services:
+  volume-init:
+    image: *postgres-image
+    profiles: [tools]
+    user: root
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        install -d -m 0700 -o postgres -g postgres /primary /archive
+        install -d -m 0700 -o postgres -g postgres /basebackup /logical /recovery
+        install -d -m 0700 -o postgres -g postgres /basebackup/data
+    volumes:
+      - primary_data:/primary
+      - wal_archive:/archive
+      - base_backup:/basebackup
+      - logical_backup:/logical
+      - recovery_data:/recovery
+    networks: [drill]
+
+  primary:
+    image: *postgres-image
+    environment:
+      POSTGRES_DB: officeagent_drill
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${OFFICEAGENT_DRILL_PASSWORD:?required}
+      POSTGRES_INITDB_ARGS: --data-checksums
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=1s
+      - -c
+      - archive_command=test ! -f /archive/%f && cp %p /archive/%f || cmp -s %p /archive/%f
+    volumes:
+      - primary_data:/var/lib/postgresql/data
+      - wal_archive:/archive
+      - logical_backup:/logical
+      - ./src/officeagent/migrations:/migrations:ro
+      - ./scripts/postgres_recovery_drill_init.sh:/docker-entrypoint-initdb.d/10-recovery-drill-hba.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d officeagent_drill"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+      start_period: 3s
+    networks: [drill]
+
+  backup-tool:
+    image: *postgres-image
+    profiles: [tools]
+    user: postgres
+    environment:
+      PGPASSWORD: ${OFFICEAGENT_DRILL_PASSWORD:?required}
+      PGUSER: officeagent_drill_replication
+    command: ["pg_basebackup", "--help"]
+    volumes:
+      - base_backup:/basebackup
+    networks: [drill]
+
+  recovery-prepare:
+    image: *postgres-image
+    profiles: [tools]
+    user: postgres
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        test ! -e /recovery/PG_VERSION
+        cp -a /basebackup/data/. /recovery/
+        find /recovery/pg_wal -mindepth 1 -maxdepth 1 -type f -delete
+        printf '%s\n' \
+          "restore_command = 'cp /archive/%f %p'" \
+          "recovery_target_time = '$${RECOVERY_TARGET_TIME}'" \
+          "recovery_target_inclusive = on" \
+          "recovery_target_timeline = 'current'" \
+          "recovery_target_action = 'promote'" \
+          >> /recovery/postgresql.auto.conf
+        touch /recovery/recovery.signal
+        chmod 0700 /recovery
+    volumes:
+      - base_backup:/basebackup:ro
+      - wal_archive:/archive:ro
+      - recovery_data:/recovery
+    networks: [drill]
+
+  recovery:
+    image: *postgres-image
+    environment:
+      POSTGRES_DB: officeagent_drill
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${OFFICEAGENT_DRILL_PASSWORD:?required}
+    command: ["postgres"]
+    volumes:
+      - recovery_data:/var/lib/postgresql/data
+      - wal_archive:/archive:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test "$$(psql -U postgres -d officeagent_drill -Atqc 'SELECT pg_is_in_recovery()')" = f
+      interval: 1s
+      timeout: 3s
+      retries: 90
+      start_period: 3s
+    networks: [drill]
+
+networks:
+  drill:
+    internal: true
+
+volumes:
+  primary_data:
+  wal_archive:
+  base_backup:
+  logical_backup:
+  recovery_data:
