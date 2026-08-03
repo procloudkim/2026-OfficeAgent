@@ -84,10 +84,10 @@ bind합니다. 다른 host에 공개해야 할 때만 `OFFICEAGENT_API_HOST`를,
 `http://127.0.0.1:8000`, OpenAPI 문서는 `/docs`입니다.
 첫 문서 업로드나 질의에는 FastEmbed 모델 다운로드가 필요할 수 있습니다.
 
-실제 구독 통합 검증의 귀속 SHA와 최신 제출 HEAD의 관계는
-[V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)에서 구분합니다. 아래 명령은
-그 통합 경계를 현재 환경에서 **새로** 검증하며, 실행하지 않은 최종 HEAD에 과거
-실호출 결과를 자동 승계하는 명령이 아닙니다.
+최종 HEAD가 바뀌면 아래 actual-live 명령을 포함한 여덟 evidence profile을 모두 그
+정확한 SHA에서 다시 실행합니다. 과거 live 결과나 docs-only 동등성은 현재 제출
+증거로 승계하지 않으며, 최신 판정은
+[V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)가 소유합니다.
 
 ```bash
 uv run python -m scripts.live_smoke

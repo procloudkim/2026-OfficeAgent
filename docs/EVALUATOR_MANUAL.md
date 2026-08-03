@@ -87,8 +87,9 @@ docker compose run --build --rm test
 정상 조건은 process exit code `0`이다. 최신 pass/skip 수와 영수증 경계는
 [V2 Requirements Traceability](./V2_REQUIREMENTS_TRACEABILITY.md)가 소유한다.
 
-여섯 skip은 격리 image에 의도적으로 없는 host Git·`flock`이 필요한 Retrobot runtime
-test다. 필수 ingestion·retrieval·cache 경로가 skip됐다는 뜻이 아니다.
+의도된 skip은 격리 image에 없는 host Git·`flock`이 필요한 Retrobot runtime test다.
+최신 skip 수는 Traceability에서 확인하며, 필수 ingestion·retrieval·cache 경로가
+skip됐다는 뜻은 아니다.
 
 이 suite가 증명하는 것:
 
@@ -233,6 +234,7 @@ score `0.30` 이상인 검색 결과가 없으면 HTTP `200`과 고정된 한국
 외부 전송 없는 readiness smoke:
 
 ```bash
+docker compose up -d --wait db
 uv run python -m scripts.live_smoke --readiness-only
 ```
 

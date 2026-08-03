@@ -643,3 +643,30 @@
 - 실행 숫자는 Traceability가 소유하고 README·manual은 exit code와 링크를 안내한다.
 - runtime anchor와 handoff HEAD의 path-scoped equivalence를 유지해 실제 실행 귀속을
   과장하지 않는다.
+
+## 2026-08-03 — same-SHA 증거 정책 단순화와 최종 냉독
+
+### Why
+
+- `$factchk`에서 recorder가 최종 HEAD와 영수증의 exact-SHA 일치를 강제한다는 점을
+  확인했다. 문서-only 예외를 두면 운영 정본과 제출 설명이 어긋나고 유지보수 분기가
+  늘어난다.
+- `$shower`는 매뉴얼의 고정 skip 개수가 Traceability 정본과 중복되고, Mode B를
+  단독 실행할 때 PostgreSQL 기동 단계가 빠져 있음을 지적했다.
+
+### What
+
+- README와 V2 Traceability에서 runtime anchor·path-scoped equivalence 예외를 제거했다.
+  HEAD가 바뀌면 코드·문서 구분 없이 여덟 profile을 exact same SHA에서 다시 실행한다.
+- `REQ-09`는 core·actual live·document 세 profile의 same-SHA 영수증이 모두 있어야
+  `VERIFIED`이고, 하나라도 없으면 `PARTIAL`인 닫힌 계약으로 표현했다.
+- 매뉴얼의 skip 수는 Traceability 링크로 단일화하고, 독립적인 readiness 경로에
+  `docker compose up -d --wait db`를 추가했다.
+
+### 검증과 책임 경계
+
+- 과거 live와 회고의 SHA는 역사 증거로 보존하되 최종 제출 증거로 승계하지 않는다.
+- 이 문서 commit과 자동 Retrobot commit이 끝난 최종 HEAD에서 8-profile bundle,
+  snapshot, validator, non-force remote parity와 final audit을 새로 확인해야 완료다.
+- actual live smoke의 sample 문맥 외부 전송과 non-force push는 사용자 승인 범위에서만
+  실행하며, 원문 답변·credential·전체 실행 log는 기록하지 않는다.
