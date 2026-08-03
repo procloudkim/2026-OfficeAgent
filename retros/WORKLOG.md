@@ -557,3 +557,31 @@
   latency·의미 품질 benchmark, CI와 운영 복구는 구현했다고 주장하지 않는다.
 - 이 일반 commit과 자동 Retrobot commit 뒤 같은 최종 SHA의 core/live/document
   receipt, snapshot, validator와 non-force remote parity를 모두 확인해야 종료한다.
+
+## 2026-08-03 — 역사 회고의 지원자 직접 보완 반영
+
+### Why
+
+- 자동 KPT는 commit별 과정 증거지만 지원자가 실제로 code path와 trade-off를
+  이해했다는 증거는 아니다.
+- 기존 회고 13건 중 7건과 새 structured-output 회고 1건의 `직접 보완`이 안내
+  comment만 남아 있어, 면접에서 현재 상태와 역사적 Try를 혼동할 위험이 있었다.
+
+### What
+
+- 비어 있던 8개 `직접 보완`에 당시 목표, 후속 검증, 기각 대안, 남은 한계와
+  AI-assisted 책임 경계를 추가했다.
+- `11c6cea` 기준선과 후속 `c42e7c9` structured-output 구현을 소급하지 않고 각
+  역사 시점과 별도 evidence로 구분했다.
+- 제품 코드·테스트·설계 계약은 바꾸지 않았다. 회고 보완 commit이 다시 빈 메타
+  회고를 만드는 순환을 피하기 위해 문서화된 `RETROBOT_SKIP=1`을 사용한다.
+
+### 검증과 책임 경계
+
+- 8개 대상 파일의 기준 commit이 Git object로 존재하고, 변경 범위가 각 파일의
+  `## 직접 보완`과 이 WORKLOG section뿐인지 확인한다.
+- Codex가 저장소 사실 대조와 문장 초안을 보조했다. 외부에서 1인칭으로 사용할
+  문장은 지원자가 code path 하나, 실패 테스트 하나와 기각 대안 하나를 설명할 수
+  있을 때만 유지한다.
+- 이번 문서 commit 뒤 현재 branch의 focused/full 검증과 non-force remote parity를
+  다시 확인하되, 문서 변경만으로 새로운 제품 성능을 주장하지 않는다.
