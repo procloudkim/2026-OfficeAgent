@@ -14,7 +14,7 @@
 
 | 모드 | 필요한 것 | 외부 LLM 전송 | 확인 범위 | 권장 상황 |
 |---|---|---:|---|---|
-| A. Docker 자동 검증 | Docker Compose | 없음 | DB·parser·RAG·cache·HTTP/SSE 계약 | **첫 평가 경로** |
+| A. Docker 자동 검증 | Docker Compose, 최초 download network 또는 cache | 없음 | DB·parser·RAG·cache·HTTP/SSE 계약 | **첫 평가 경로** |
 | B. Readiness smoke | Docker, Python, uv | 없음 | 일회용 DB·migration·실제 Uvicorn readiness | 실행 준비 확인 |
 | C. 제품 수동 실행 | 위 항목 + Codex 로그인 | 질문 시 있음 | upload→retrieve→Codex→SSE·citation | API 관찰 |
 | D. Actual live smoke | 위 항목 + 명시적 승인 | 샘플 문서·질문 | miss→hit→update→miss와 실제 delta | 최종 통합 확인 |
@@ -53,17 +53,24 @@ python3 --version
 uv --version
 ```
 
-실제 Codex 모드에는 Node.js와 고정된 Codex CLI가 추가로 필요하다.
+실제 Codex 모드 C/D에는 Node.js와 고정된 Codex CLI가 추가로 필요하다.
 
 ```bash
 node --version
-npm install -g @openai/codex@0.146.0
 codex --version
+```
+
+CLI가 없거나 이 저장소의 검증 version을 재현해야 할 때만 다음을 실행한다.
+`npm install -g`는 host의 global package를 변경하고, `codex login`은 사용자
+credential session을 생성한다.
+
+```bash
+npm install -g @openai/codex@0.146.0
 codex login
 ```
 
-이미 같은 버전이 설치됐다면 `npm install`은 생략할 수 있다. `codex --version`이
-`codex-cli 0.146.0`을 출력하고 로그인이 완료돼야 C·D 모드를 실행한다.
+`codex --version`이 `codex-cli 0.146.0`을 출력하고 로그인이 완료돼야 C·D 모드를
+실행한다.
 
 ## 3. 구독 없이 자동 검증한다
 
@@ -77,11 +84,8 @@ docker compose run --build --rm test
 고정한 PostgreSQL 17.10+pgvector 0.8.6을 준비하고, 임시 database에 migration을
 적용한 뒤 실제 DB·parser·FastAPI ASGI 경로를 실행하고 database를 제거한다.
 
-현재 예상 종료 요약:
-
-```text
-188 passed, 6 skipped
-```
+정상 조건은 process exit code `0`이다. 최신 pass/skip 수와 영수증 경계는
+[V2 Requirements Traceability](./V2_REQUIREMENTS_TRACEABILITY.md)가 소유한다.
 
 여섯 skip은 격리 image에 의도적으로 없는 host Git·`flock`이 필요한 Retrobot runtime
 test다. 필수 ingestion·retrieval·cache 경로가 skip됐다는 뜻이 아니다.
@@ -122,8 +126,14 @@ docker compose up -d --wait db
 uv run officeagent
 ```
 
-정상 시작 시 기본 주소는 `http://127.0.0.1:8000`, OpenAPI UI는 `/docs`다. 첫
-실행에서는 FastEmbed model 다운로드 때문에 startup이 길어질 수 있다.
+정상 시작 시 기본 주소는 `http://127.0.0.1:8000`, OpenAPI UI는 `/docs`다.
+첫 문서 업로드나 질의에서 FastEmbed model을 lazy load하므로 최초 embedding이
+길어질 수 있다.
+
+기본 DB 계정과 비밀번호는 local development 전용이며 API에는 인증·TLS·사용자별
+corpus 격리가 없다. 기본 loopback bind를 유지하고, 인증과 network 경계 없이
+`OFFICEAGENT_API_HOST`를 외부 interface로 바꾸지 않는다. 기본 실행에는 `.env`가
+필수는 아니며, 환경 값을 추가했다면 `.env`와 credential을 commit하지 않는다.
 
 ### 4.2 readiness 확인
 
@@ -160,7 +170,15 @@ curl -i -F "file=@sample-docs/company-policy.txt;type=text/plain" \
 | `chunk_count` | 1 이상 |
 | `invalidated_cache_entries` | 문서 변경으로 무효화한 cache 수 |
 
+문서 identity는 경로를 제거한 filename을 NFKC·casefold·공백 정규화한 값이다. 같은
+filename과 같은 bytes를 다시 올리면 `unchanged`로 version을 유지하고, 같은 filename의
+내용을 바꾸어 다시 올리면 별도 update endpoint 없이 `updated`와 다음 version을 만든다.
+다른 filename은 새 문서다.
+
 ### 4.4 실제 SSE 질문
+
+제품의 일반 질문도 질문과 score gate를 통과한 검색 문맥을 외부 Codex 서비스로
+보낸다. sample이 아닌 문서를 업로드했다면 해당 데이터 전송 승인을 먼저 확인한다.
 
 ```bash
 curl -N -H "Content-Type: application/json" \
@@ -197,6 +215,19 @@ curl -sS -H "Content-Type: application/json" \
 `grounded`, `cache_written`, `cache_skip_reason`이 있다. 모델의 raw JSON grammar는
 API 밖으로 노출하지 않는다.
 
+### 4.6 근거가 없는 질문 확인
+
+```bash
+curl -sS -H "Content-Type: application/json" \
+  -d '{"question":"오늘 구내식당 메뉴는 무엇인가요?"}' \
+  http://127.0.0.1:8000/v1/questions
+```
+
+score `0.30` 이상인 검색 결과가 없으면 HTTP `200`과 고정된 한국어 거절 답변을
+반환한다. 이때 `grounded=false`, `citations=[]`, `cache_written=false`,
+`cache_skip_reason="no_evidence"`이며 Codex를 호출하지 않는다. SSE도
+`answer.started → answer.delta → answer.completed`로 끝나고 citation은 없다.
+
 ## 5. readiness와 actual live smoke를 구분한다
 
 외부 전송 없는 readiness smoke:
@@ -225,8 +256,8 @@ fail-closed한다. 정상 결과는 답변 원문·DB URL·workspace path를 제
 
 | 결과 | 의미 | 먼저 확인할 것 |
 |---|---|---|
-| upload `413` | 최대 1,000,000 bytes 초과 | 파일 크기 |
-| upload `415` | PDF·TXT·Markdown 외 형식 | extension과 MIME type |
+| upload `413` | 기본 20 MiB(20,971,520 bytes) 초과 | 파일 크기와 `OFFICEAGENT_MAX_UPLOAD_BYTES` |
+| upload `415` | `.pdf`·`.txt`·`.md` 외 filename extension | extension; MIME은 현재 허용 판정 기준이 아님 |
 | upload/query `422` | 빈 문서·질문 또는 validation 실패 | response `detail`과 입력 |
 | query JSON `502` | LLM transport·timeout·structured validation 실패 | API log의 error type, Codex 상태 |
 | readiness `503` | DB·migration·pgvector 준비 실패 또는 timeout | DB health와 migration check |
@@ -243,7 +274,7 @@ structured 응답이 중간에 실패하면 이미 보낸 provisional delta는 �
 | `port is already allocated` | host `15432` 사용 중 | `OFFICEAGENT_DB_PORT`와 DB URL port를 같은 값으로 변경 |
 | DB가 healthy가 되지 않음 | image pull·volume·password 문제 | `docker compose logs db` 확인 후 DB 재시작 |
 | migration check 실패 | schema drift 또는 미적용 migration | 아래 check 실행; ledger를 수동 수정하지 않음 |
-| API startup이 오래 걸림 | 최초 FastEmbed model 다운로드 | API log를 확인하고 다운로드 완료 대기 |
+| 첫 업로드·질의가 오래 걸림 | FastEmbed model의 최초 lazy download | API log를 확인하고 download 완료 대기 |
 | `codex: command not found` | CLI 미설치 | 고정 version 설치 후 `codex --version` 확인 |
 | Codex 인증 오류 | login 만료·잘못된 `CODEX_HOME` | host에서 다시 로그인; credential을 container에 mount하지 않음 |
 | 첫 delta timeout | process/network 지연 | 첫 visible delta 전 한 번만 retry; 원인 확인 뒤 timeout 조정 |

@@ -606,6 +606,17 @@
 - Retrobot 문서에는 사전 조건, 기대 결과, 문제 해결과 reflection-only skip의 사용
   경계를 추가했다.
 
+### Fact check와 냉독
+
+- 저장소 code·settings·test와 대조해 upload 기본 상한을 20 MiB로, `415`
+  판정을 filename extension으로, FastEmbed를 최초 embedding의 lazy load로 바로잡았다.
+- 냉독은 근거 없는 10분 예상치, global npm install·login의 무조건 명령,
+  test count 중복을 지적했다. 시간 주장은 제거하고 global 변경은 선택 모드로
+  한정했으며 실행 수치는 Traceability로 되돌렸다.
+- 문서-only commit에서 과거 live 영수증을 최종 HEAD의 새 실행으로 재해석하지 않는다.
+  대신 runtime path 동등성을 확인하고, live runtime anchor와 문서 handoff HEAD의
+  증거 귀속을 분리했다.
+
 ### Technical Writing 완료 기준
 
 - 독자가 `무엇→사전 조건→명령→정상 결과→실패 처리→한계` 순서로 따라갈 수 있다.
@@ -613,3 +624,22 @@
 - 원본 PRD, 자동 KPT와 역사 verification receipt는 현재 매뉴얼처럼 다시 쓰지 않는다.
 - 모든 Markdown link, command spelling, Docker test, readiness, runtime-equivalence와
   remote parity를 최종 commit에서 다시 확인한다.
+
+## 2026-08-03 — 냉독 후 매뉴얼 사실·안전 경계 교정
+
+### Why
+
+- 첫 매뉴얼 초안은 test fixture의 1 MB 값을 제품 기본 업로드 한도로 잘못 읽었고,
+  FastEmbed 초기화 시점과 업로드 허용 기준도 실제 code보다 넓게 표현했다.
+- 실제 live 영수증은 structured runtime anchor에 귀속되므로 docs-only HEAD에서
+  모든 profile을 다시 실행했다고 표현하면 안 된다.
+
+### What
+
+- 제품 설정의 20 MiB 한도, filename extension 판정, embedding lazy load를 code와
+  대조해 수정했다.
+- 문서 갱신이 같은 정규화 filename 재업로드라는 점과 무근거 JSON/SSE 결과,
+  인증·TLS·사용자별 corpus 부재, 일반 질문의 외부 데이터 전송 경계를 추가했다.
+- 실행 숫자는 Traceability가 소유하고 README·manual은 exit code와 링크를 안내한다.
+- runtime anchor와 handoff HEAD의 path-scoped equivalence를 유지해 실제 실행 귀속을
+  과장하지 않는다.

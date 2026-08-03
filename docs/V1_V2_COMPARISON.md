@@ -22,7 +22,7 @@
 | V1 | implementation `bd08426`에서 27 tests PASS; final `29a429f`는 후속 Retrobot Markdown commit | `HISTORIC` rollback 기준선 |
 | V1 live | ancestor `e838cc7`에서 actual Codex/Uvicorn SSE 17 deltas | `HISTORIC`; V2 freshness로 재사용하지 않음 |
 | V2 초기 | `5ae7cca` exact archive에서 Docker 48 tests PASS | `HISTORIC` external observation; current evidence로 재사용하지 않음 |
-| V2 source evidence | current-SHA 8-profile bundle: Docker `188 passed, 6 skipped`, clean launch, readiness, actual Codex/SSE, 문서·출처·Retrobot, remote parity | 제출 evidence `VERIFIED` |
+| V2 source evidence | current-SHA 8-profile bundle: Docker core, clean launch, readiness, actual Codex/SSE, 문서·출처·Retrobot, remote parity | 제출 evidence `VERIFIED`; 실행 수치는 V2 Traceability 참조 |
 
 ## 2. 구조와 운영 비교
 

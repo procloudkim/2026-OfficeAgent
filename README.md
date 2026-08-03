@@ -13,7 +13,7 @@ App Server 응답을 SSE로 전달하고 문서명·버전·청크 위치를 출
 
 | 독자의 목적 | 먼저 할 일 | 정상 결과 | 다음 문서 |
 |---|---|---|---|
-| 빠른 채점 | `docker compose run --build --rm test` | `188 passed, 6 skipped` | [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md) |
+| 빠른 채점 | `docker compose run --build --rm test` | exit code `0` | [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md) |
 | 제품 실행 | 아래 `제품 실행` 순서로 DB와 API 시작 | readiness `200`, upload `201` | [Evaluator Manual](./docs/EVALUATOR_MANUAL.md) |
 | 설계 검토 | transaction·SSE·cache 경계 확인 | 선택 이유와 비범위 식별 | [Architecture](./ARCHITECTURE.md) |
 | prompt/LLM 검토 | schema·decoder·실패 의미 확인 | raw JSON 비노출·invalid no-cache | [Prompt Design](./PROMPT_DESIGN.md) |
@@ -82,7 +82,7 @@ API를 중지한 뒤 `docker compose down`으로 PostgreSQL 컨테이너를 종�
 bind합니다. 다른 host에 공개해야 할 때만 `OFFICEAGENT_API_HOST`를, port를
 바꿀 때는 `OFFICEAGENT_API_PORT`를 명시적으로 설정합니다. 로컬 접속 주소는
 `http://127.0.0.1:8000`, OpenAPI 문서는 `/docs`입니다.
-최초 실행에는 FastEmbed 모델 다운로드가 필요합니다.
+첫 문서 업로드나 질의에는 FastEmbed 모델 다운로드가 필요할 수 있습니다.
 
 실제 구독 통합 검증의 귀속 SHA와 최신 제출 HEAD의 관계는
 [V2 Traceability](./docs/V2_REQUIREMENTS_TRACEABILITY.md)에서 구분합니다. 아래 명령은
@@ -245,6 +245,7 @@ uv run ruff check src tests
 | `OFFICEAGENT_DATABASE_URL` | `postgresql://officeagent:…@127.0.0.1:15432/officeagent` |
 | `OFFICEAGENT_DATABASE_ADMIN_URL` | unset; live smoke만 로컬 product URL에서 `postgres` target을 유도 |
 | `OFFICEAGENT_READINESS_TIMEOUT_SECONDS` | `5` (maximum `30`) |
+| `OFFICEAGENT_MAX_UPLOAD_BYTES` | `20,971,520` (20 MiB) |
 | `OFFICEAGENT_CHUNK_SIZE` / `OFFICEAGENT_CHUNK_OVERLAP` | `900` / `150` |
 | `OFFICEAGENT_RETRIEVAL_LIMIT` | `5` |
 | `OFFICEAGENT_MINIMUM_RELEVANCE_SCORE` | `0.30` |
