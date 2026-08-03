@@ -301,19 +301,18 @@ uv run ruff check src tests scripts
 | `OFFICEAGENT_DATABASE_ADMIN_URL` | unset; live smoke만 로컬 product URL에서 `postgres` target을 유도 |
 | `OFFICEAGENT_READINESS_TIMEOUT_SECONDS` | `5` (maximum `30`) |
 | `OFFICEAGENT_MAX_UPLOAD_BYTES` | `20,971,520` (20 MiB) |
-| `OFFICEAGENT_CHUNK_SIZE` / `OFFICEAGENT_CHUNK_OVERLAP` | `200` / `50` |
+| `OFFICEAGENT_CHUNK_SIZE` / `OFFICEAGENT_CHUNK_OVERLAP` | `900` / `150` |
 | `OFFICEAGENT_RETRIEVAL_LIMIT` | `5` |
-| `OFFICEAGENT_MINIMUM_RELEVANCE_SCORE` | `0.40` |
+| `OFFICEAGENT_MINIMUM_RELEVANCE_SCORE` | `0.30` |
 | `OFFICEAGENT_CACHE_SIMILARITY_THRESHOLD` | `0.95` |
 | `OFFICEAGENT_PROMPT_INPUT_TOKEN_BUDGET` | `4096` (tiktoken `o200k_base` proxy; valid range `512..65536`) |
 | `OFFICEAGENT_CODEX_FIRST_DELTA_TIMEOUT_SECONDS` | `45` |
 | `OFFICEAGENT_CODEX_OVERALL_TIMEOUT_SECONDS` | `120` |
 | `OFFICEAGENT_CODEX_MAX_CONCURRENT_REQUESTS` | `2` |
 
-`200/50/0.40`은 clean `3f1bc7d` archive, sample 문서 2개와 사람이 승인한 질문
-15건에서 비교한 탐색적 기본값입니다. 기존 `900/150/0.30`보다 answerable gate pass는
-`0.667`에서 `1.000`으로, abstention false-positive는 `0.667`에서 `0.500`으로
-개선됐습니다. 작은 corpus에서 얻은 값이므로 production 최적값으로 해석하지 않습니다.
+`900/150/0.30`은 현재 구현의 초기 기본값입니다. gold v1은 아직 사용자 채택 전이고
+실제 Codex evaluator도 실행하지 않았으므로, 이 값이 품질셋에서 최적화됐거나 기존
+설정보다 우수하다고 주장하지 않습니다.
 
 동일한 원문을 다시 업로드하면 content hash 기준으로 idempotent 처리됩니다. 따라서 이미
 문서가 들어 있는 DB에서 chunk 설정만 바꾸어도 기존 vector는 자동 재생성되지 않습니다.

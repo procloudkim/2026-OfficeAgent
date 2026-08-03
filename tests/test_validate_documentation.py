@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from officeagent.infrastructure.settings import Settings
 from scripts.validate_documentation import validate_repository
 
 
@@ -95,3 +96,17 @@ def test_documentation_validator_rejects_unpinned_or_secret_using_workflow(
 
     assert any("non-SHA action reference" in error for error in report.errors)
     assert any("forbidden marker" in error for error in report.errors)
+
+
+def test_readme_runtime_defaults_match_settings() -> None:
+    settings = Settings(_env_file=None)
+    readme = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
+
+    assert (
+        "| `OFFICEAGENT_CHUNK_SIZE` / `OFFICEAGENT_CHUNK_OVERLAP` | "
+        f"`{settings.chunk_size}` / `{settings.chunk_overlap}` |"
+    ) in readme
+    assert (
+        "| `OFFICEAGENT_MINIMUM_RELEVANCE_SCORE` | "
+        f"`{settings.minimum_relevance_score:.2f}` |"
+    ) in readme

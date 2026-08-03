@@ -819,3 +819,21 @@
 - 핵심 test `10 passed`, prompt/retrieval/stream/cache 회귀 `22 passed`, timing/settings/
   문서 회귀 `34 passed`와 대상 Ruff를 통과했다. 실제 Codex live와 final exact-SHA
   hosted check는 이 commit 뒤 새 HEAD에서 다시 확인해야 한다.
+
+## 2026-08-04 — README runtime 기본값 정합성 복구
+
+### 발견
+
+- 평가자 문서를 다시 읽는 과정에서 README가 runtime의 실제 `900/150/0.30` 대신
+  `200/50/0.40`을 기본값으로 표시하고, 실행하지 않은 gold 튜닝 개선 수치까지
+  주장하는 drift를 발견했다.
+- `Settings`와 README를 양방향으로 대조해 코드가 source of truth임을 확인했다.
+  사용자 채택 전 gold v1과 미실행 actual evaluator는 기본값 개선 증거가 아니다.
+
+### 교정과 재발 방지
+
+- README를 실제 설정으로 되돌리고 최적화·성능 우위 문구를 제거했다.
+- 문서 테스트가 `Settings(_env_file=None)`의 chunk size, overlap과 minimum score를
+  README 표와 직접 비교하도록 해 같은 drift를 hosted suite에서 차단한다.
+- 이 교정은 runtime 동작이나 gold dataset을 바꾸지 않으며 `DQ-06` 문서-코드 정합성
+  위험만 닫는다.
