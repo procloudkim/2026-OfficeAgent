@@ -886,6 +886,41 @@
 - schedule·retention·off-host copy·encryption·monitoring, cluster-global object,
   production RPO/RTO와 HA는 계속 증명되지 않았다.
 
+## 2026-08-04 — 실제 sample-docs 기준 Gold v1 교정과 사람 승인
+
+### 발견과 원인
+
+- 최초 dev gold corpus는 제출 저장소의 `sample-docs`를 평가하려는 목적과 달리 교육비
+  사전 승인, 고정 재택 요일, CODEOWNERS, 정기 배포 시각, 롤백 임계값과 별도 보안
+  핸드북을 임의로 추가한 합성 문서였다. loader와 metric test가 통과해도 잘못된
+  정답표를 정확히 채점할 뿐 실제 제출 RAG 품질은 측정하지 못하는 상태였다.
+- 지원자가 질문별 기대 사실을 실제 문서와 대조해 이 불일치를 발견했다. 특히 연간
+  200만원 지원 한도는 수강 전 승인 임계값이 아니며, 매월 15일까지 HR팀에 신청하고
+  승인 후 환급받는다는 서로 다른 사실을 한 답으로 섞지 않아야 했다.
+
+### 교정과 재발 방지
+
+- dev corpus를 `sample-docs/company-policy.txt`와 `development-guide.md`의
+  byte-for-byte 복제로 교체하고, 실제 sample에 없는 보안 핸드북을 제거했다.
+- dev 15건을 원문 근거가 있는 answerable 10건과 topic-adjacent negative 5건으로 다시
+  구성했다. 사전 승인 금액, 고정 재택 요일, 코어타임, 정기 배포 시각과 롤백 임계값은
+  검색 결과가 비슷해도 답하지 않아야 통과한다. PR 병합 기준은 실제 문서의 최소
+  리뷰어 1명으로 정정했다.
+- manifest가 새 case·문서 digest를 고정하고, 회귀 test가 dev 평가 문서와 두
+  `sample-docs`의 exact bytes 및 다섯 negative ID를 직접 비교한다.
+
+### 승인, 검증과 남은 경계
+
+- 지원자는 dataset SHA
+  `2d5ddc3b03507618026c3126f5bffa8e53dad0f9e185cea2d558bc32efc6cd43`을
+  `2026-08-04T02:25:41+09:00`에 승인했다. approval은 이 exact hash에만 유효하며
+  case, manifest 또는 corpus가 바뀌면 loader가 fail-closed한다.
+- dev와 holdout `--verify-only`가 각각 15 case와 같은 hash를 반환했고, evaluator·격리·
+  문서 집중 회귀 `29 passed`, 대상 Ruff와 `git diff --check`가 통과했다.
+- 이 승인은 데이터셋 채택 증거다. 실제 PostgreSQL/FastEmbed/Codex 품질 run,
+  baseline과 candidate 비교, 제품 기본값 승격 또는 blind benchmark 결과는 아직
+  주장하지 않는다.
+
 ## 2026-08-04 — dual-bound chunking과 policy-aware 재수집
 
 ### Why와 경계

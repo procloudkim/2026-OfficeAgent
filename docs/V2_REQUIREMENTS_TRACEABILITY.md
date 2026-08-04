@@ -133,15 +133,16 @@ current candidate readiness target은 migration head `0003`이며, 위 `3f1bc7d`
 
 | ID | 경계와 증거 | 상태 |
 |---|---|---|
-| `EVAL-01` | 30-case dev/process-holdout, case·문서 hash와 portable dataset SHA, exact-byte approval contract | `PARTIAL` — loader 검증 PASS, 사용자 채택 `pending` |
+| `EVAL-01` | 실제 sample-docs byte parity의 dev와 합성 process-holdout 30-case, case·문서 hash와 portable dataset SHA, exact-byte approval contract | `VERIFIED` — loader·원문 parity와 사용자 exact-hash 승인 PASS |
 | `EVAL-02` | 제품 ingestion/Q&A runner, split별 loopback disposable DB와 empty-corpus guard | `PARTIAL` — focused 22 PASS, 실제 FastEmbed/PostgreSQL/Codex run 미실행 |
 | `EVAL-03` | retrieval hit/MRR, lexical answer·citation claim coverage, exact abstention | `PARTIAL` — deterministic proxy이며 semantic entailment·NLI·factuality 아님 |
 
 dataset SHA는
-`323edcd4591726d8ea1c8e36c4137fa2558d7b020260514eb7ea5ab6a0ac52a9`이고
-`evals/gold/v1/approval.json`이 `pending`이다. 공개된 holdout은 blind benchmark가
-아니며 이 데이터로 제품 기본값을 튜닝했다고 주장하지 않는다. 실제 run은 합성 질문과
-검색 문맥을 사용자 구독의 로컬 Codex App Server에 전송하므로 CI에서 실행하지 않는다.
+`2d5ddc3b03507618026c3126f5bffa8e53dad0f9e185cea2d558bc32efc6cd43`이고
+`evals/gold/v1/approval.json`이 지원자 승인과 그 exact hash를 고정한다. 공개된
+holdout은 blind benchmark가 아니며 이 데이터로 제품 기본값을 튜닝했다고 주장하지
+않는다. 실제 run은 평가 질문과 검색 문맥을 사용자 구독의 로컬 Codex App Server에
+전송하므로 CI에서 실행하지 않는다.
 
 공식 명령은 다음 한 줄입니다.
 

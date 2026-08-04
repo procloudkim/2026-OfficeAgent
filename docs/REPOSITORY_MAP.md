@@ -132,7 +132,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `pyproject.toml`, `uv.lock` | Python build, locked dependencies, tool config |
 | `.gitignore`, `.gitattributes` | generated exclusion, cross-platform LF contract |
 | `sample-docs/company-policy.txt`, `development-guide.md` | manual/live fixtures |
-| `evals/gold/v1/` | hash-pinned synthetic dev/process-holdout corpus·cases와 pending adoption |
+| `evals/gold/v1/` | 실제 sample-docs와 동일한 dev, 합성 process-holdout corpus·cases, hash와 owner-approved adoption |
 | `retros/WORKLOG.md` | 지원자가 확인한 사실·실패·전환 |
 | `retros/TIMELINE.md`, `retros/*_retro.md` | guard-validated Retrobot 출력; 사실 주장은 지원자가 재검토할 Track C evidence |
 

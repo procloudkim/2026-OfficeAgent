@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "dataset_version": "v1",
-  "status": "pending",
-  "approved_dataset_sha256": null,
-  "approved_by": null,
-  "approved_at": null
+  "status": "approved",
+  "approved_dataset_sha256": "2d5ddc3b03507618026c3126f5bffa8e53dad0f9e185cea2d558bc32efc6cd43",
+  "approved_by": "applicant",
+  "approved_at": "2026-08-04T02:25:41+09:00"
 }

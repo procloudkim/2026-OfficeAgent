@@ -18,6 +18,7 @@ RUN ! command -v node >/dev/null 2>&1 \
 
 COPY tests ./tests
 COPY evals ./evals
+COPY sample-docs/company-policy.txt sample-docs/development-guide.md ./sample-docs/
 COPY Dockerfile.test .dockerignore ./
 COPY compose.recovery-drill.yaml compose.ha-local.yaml ./
 COPY .github/workflows/quality-gates.yml ./.github/workflows/quality-gates.yml

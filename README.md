@@ -17,7 +17,7 @@ App Server 응답을 SSE로 전달하고 문서명·버전·청크 위치를 출
 | Hosted CI | Draft PR의 `quality-gates` 확인 | exact SHA의 check 성공 | [workflow](./.github/workflows/quality-gates.yml) |
 | 복구 가산점 검증 | `uv run --frozen python -m officeagent.infrastructure.postgres_recovery_drill` | cleanup 뒤 JSON `PASS` | [Evaluator Manual §3.3](./docs/EVALUATOR_MANUAL.md#33-일회용-postgresql-복구-drill) |
 | standby 운영 경계 검증 | `uv run --frozen python -m officeagent.infrastructure.postgres_ha_drill` | cleanup 뒤 제한된 JSON `PASS` | [Evaluator Manual §3.4](./docs/EVALUATOR_MANUAL.md#34-일회용-postgresql-비동기-standby-drill) |
-| 품질셋 검토 | `uv run python -m officeagent.evaluation --split dev --verify-only` | `pending`과 고정 dataset SHA | [Gold set v1](./evals/gold/v1/README.md) |
+| 품질셋 검토 | `uv run python -m officeagent.evaluation --split dev --verify-only --require-approved` | `approved`와 고정 dataset SHA | [Gold set v1](./evals/gold/v1/README.md) |
 | 제품 실행 | 아래 `제품 실행` 순서로 DB와 API 시작 | readiness `200`, upload `201` | [Evaluator Manual](./docs/EVALUATOR_MANUAL.md) |
 | 설계 검토 | transaction·SSE·cache 경계 확인 | 선택 이유와 비범위 식별 | [Architecture](./ARCHITECTURE.md) |
 | prompt/LLM 검토 | schema·decoder·실패 의미 확인 | raw JSON 비노출·invalid no-cache | [Prompt Design](./PROMPT_DESIGN.md) |
@@ -296,20 +296,22 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 
 ### 제안 gold set과 evaluator
 
-[`evals/gold/v1`](./evals/gold/v1/README.md)은 dev 15건과 공개된 process-holdout
-15건을 가진 합성 품질셋입니다. 각 split은 answerable 10건과 문서 주제는 가깝지만
-정답 사실이 없는 `retrieval_negative` 5건으로 구성됩니다. manifest가 case와 corpus
-bytes를 고정하고 두 split의 현재 dataset SHA는
-`323edcd4591726d8ea1c8e36c4137fa2558d7b020260514eb7ea5ab6a0ac52a9`입니다.
+[`evals/gold/v1`](./evals/gold/v1/README.md)은 실제 `sample-docs`와 byte-for-byte로
+같은 dev corpus의 15건, 별도 합성 process-holdout corpus의 15건을 가집니다. 각
+split은 answerable 10건과 문서 주제는 가깝지만 정답 사실이 없는
+`retrieval_negative` 5건으로 구성됩니다. manifest가 case와 corpus bytes를 고정하고
+두 split의 현재 dataset SHA는
+`2d5ddc3b03507618026c3126f5bffa8e53dad0f9e185cea2d558bc32efc6cd43`입니다.
 
-`approval.json`은 의도적으로 `pending`입니다. 따라서 이 셋은 사용자 채택이나 blind
-benchmark가 아니며 제품 기본값을 정당화하지 않습니다. metric은 retrieval hit/MRR,
-lexical answer·citation claim coverage와 exact abstention입니다. lexical coverage는
-semantic entailment, NLI 또는 factuality 판정이 아닙니다.
+`approval.json`은 지원자가 검토한 위 exact hash를 `approved`로 고정합니다. 이는
+데이터셋의 사람 채택을 뜻하지만 공개 holdout을 blind benchmark로 만들거나 아직
+실행하지 않은 품질 결과와 제품 기본값을 정당화하지는 않습니다. metric은 retrieval
+hit/MRR, lexical answer·citation claim coverage와 exact abstention입니다. lexical
+coverage는 semantic entailment, NLI 또는 factuality 판정이 아닙니다.
 
 실제 평가 CLI는 선택한 split마다 loopback PostgreSQL에 무작위 disposable database를
 생성하고 migration 뒤 empty corpus를 확인하며 성공·실패 모두에서 삭제합니다. 실제
-run은 선택한 합성 질문과 검색 문맥을 로컬 인증 Codex App Server에 보내고 사용자
+run은 선택한 평가 질문과 검색 문맥을 로컬 인증 Codex App Server에 보내고 사용자
 구독을 사용합니다. CI와 이 변경의 검증은 `--verify-only`와 fake service 경계만
 실행하며 실제 Codex 평가를 수행하지 않습니다. 실행·승인 절차와 exit code는
 [Gold set v1](./evals/gold/v1/README.md)이 소유합니다.
@@ -347,7 +349,7 @@ uv run ruff check src tests scripts
 `900/150/0.30`은 현재 구현의 초기 기본값입니다. `900`은 chunk의
 Unicode code-point 상한과 `o200k_base` proxy-token 상한에 같이 적용되고
 `150`은 code-point overlap입니다. grapheme cluster 경계는 보장하지 않습니다.
-gold v1은 아직 사용자 채택 전이고 실제 Codex evaluator도
+gold v1 데이터셋은 사용자가 exact SHA를 승인했지만 실제 Codex evaluator는
 실행하지 않았으므로, 이 값이 품질셋에서 최적화됐거나 기존 설정보다
 우수하다고 주장하지 않습니다.
 

@@ -8,7 +8,9 @@
 .test-data/
 .pytest-tmp*/
 .pytest_cache/
-sample-docs/
+sample-docs/*
+!sample-docs/company-policy.txt
+!sample-docs/development-guide.md
 
 # Local build and editor state
 .venv/
