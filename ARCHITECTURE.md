@@ -26,6 +26,7 @@ V1의 SQLite metadata/cache와 Chroma vector mutation은 하나의 transaction�
 - exact-SHA lock·host·Docker·readiness를 검증하는 GitHub `quality-gates`
 - 입력 원문을 기록하지 않는 request-scoped structured timing receipt
 - hash·승인 상태와 split 격리를 가진 합성 gold evaluator
+- 같은 Docker backend의 수동 async streaming standby·promotion drill
 
 ### How
 
@@ -266,6 +267,32 @@ project volume을 사용하며 제품 DB·Codex 환경을 전달하지 않습니
 encryption·monitoring, production RPO/RTO 또는 HA를 증명하지 않습니다. 세부 실행과
 수동 잔여물 정리는 [Evaluator Manual](./docs/EVALUATOR_MANUAL.md#33-일회용-postgresql-복구-drill)이 소유합니다.
 
+### Disposable async standby drill 경계
+
+`compose.ha-local.yaml`은 제품 Compose와 recovery drill에서 분리된 opt-in topology입니다.
+runner는 physical base backup으로 standby를 만들고 `pg_stat_replication`의
+`streaming|async`, marker 존재와 replay LSN을 확인합니다. old primary를 명시적으로
+stop한 뒤 direct standby read를 확인하고, 같은 multi-host route의
+`target_session_attrs=read-write` 접속이 실패해야 다음 단계로 갑니다. 이 실패만으로
+판정하지 않고 즉시 같은 route를 `any`로 실행해 recovering standby에 연결되는지를
+추가 증거로 요구하므로 DNS·인증·startup 실패를 read-write 거절로 오인할 위험을
+줄입니다. `any` 자체는 read-only를 요구하지 않으며 `pg_is_in_recovery()` 결과가
+선택된 node의 상태를 증명합니다.
+
+promotion은 자동 election이 아니라 `pg_promote(true, 60)`을 직접 호출합니다. 이후
+같은 read-write route가 promoted standby를 선택해 marker를 한 번 쓰고, old primary가
+계속 stopped인지 재확인합니다. replication passfile은 standby container 시작 때
+`0600`으로 runtime tmpfs에 만들며 named PGDATA volume에는 남기지 않습니다. random
+project, internal network, host port 없음, child environment allowlist를 사용합니다.
+teardown 명령 성공만 신뢰하지 않고 project container·volume·network와 전용 migration
+image가 각각 없는지 재조회한 뒤에만 receipt를 만듭니다.
+
+이 drill은 한 Docker daemon과 storage/network failure domain 안의 수동 절차입니다.
+automatic failover, quorum, split-brain 방지용 production fencing, cross-host 장애,
+zero-loss, RPO/RTO, 운영 monitoring이나 제품 traffic 전환을 구현하거나 증명하지
+않습니다. 실행과 비정상 종료 cleanup은
+[Evaluator Manual](./docs/EVALUATOR_MANUAL.md#34-일회용-postgresql-비동기-standby-drill)이 소유합니다.
+
 ## 8. Readiness 경계
 
 `/health/live`는 process liveness만 반환합니다. V2 완료 계약의 `/health/ready`는
@@ -354,8 +381,9 @@ embedding만 double로 교체합니다. 이 경계는 실제 Codex incremental S
   proxy입니다. semantic 경계, 정확한 Codex tokenizer, 품질 향상을 보장하지
   않으며 상한·overlap은 Python Unicode code-point 단위입니다. grapheme
   cluster 경계를 보존하지 않습니다.
-- 제품은 단일 노드이며 production HA와 recovery control plane, OCR, document delete,
-  tenant isolation은 비범위입니다. 별도 local recovery drill만 존재합니다.
+- 제품은 단일 노드이며 automatic failover와 production HA/recovery control plane,
+  OCR, document delete, tenant isolation은 비범위입니다. 별도 local recovery와
+  수동 async standby drill은 운영 절차의 일부 경계만 검증합니다.
 - 동일 질문 cache miss single-flight가 없어 Codex 중복 호출 가능성이 있습니다.
 - 구조화 decoder는 answer 65,536자, raw JSON 1,048,576자, stdio line 8 MiB의
   로컬 상한을 둡니다. prompt proxy budget은 실제 Codex headroom을 보장하지 않고

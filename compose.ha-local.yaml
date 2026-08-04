@@ -1,0 +1,163 @@
+x-postgres-image: &postgres-image
+  pgvector/pgvector:0.8.6-pg17-bookworm@sha256:f193b9c848deb27b0e892f85ed07b53fd83ccb1feb634ba415b1cdc44411bedc
+
+services:
+  volume-init:
+    image: *postgres-image
+    profiles: [tools]
+    user: root
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        install -d -m 0700 -o postgres -g postgres /primary /standby
+    volumes:
+      - primary_data:/primary
+      - standby_data:/standby
+    networks: [ha]
+
+  primary:
+    image: *postgres-image
+    environment:
+      POSTGRES_DB: officeagent_ha
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${OFFICEAGENT_HA_PASSWORD:?required}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --data-checksums
+    entrypoint: ["/bin/bash", "-ceu"]
+    command:
+      - |
+        postgres_pid=''
+        forward_term() {
+          if test -n "$${postgres_pid}"; then
+            kill -TERM "$${postgres_pid}" 2>/dev/null || true
+            wait "$${postgres_pid}" || true
+          fi
+          exit 0
+        }
+        trap forward_term TERM INT
+        docker-entrypoint.sh postgres \
+          -c wal_level=replica \
+          -c hot_standby=on \
+          -c max_wal_senders=4 \
+          -c wal_keep_size=128MB \
+          -c cluster_name=primary &
+        postgres_pid=$$!
+        until psql --no-psqlrc --username postgres --dbname officeagent_ha \
+          --tuples-only --no-align --command 'SELECT 1' >/dev/null 2>&1; do
+          kill -0 "$${postgres_pid}" 2>/dev/null || wait "$${postgres_pid}"
+          sleep 0.2
+        done
+        hba_rule='host replication postgres all scram-sha-256'
+        grep -Fqx "$${hba_rule}" "$${PGDATA}/pg_hba.conf" || \
+          printf '%s\n' "$${hba_rule}" >> "$${PGDATA}/pg_hba.conf"
+        psql --no-psqlrc --set ON_ERROR_STOP=1 \
+          --username postgres --dbname officeagent_ha \
+          --command 'SELECT pg_reload_conf()' >/dev/null
+        touch "$${PGDATA}/.officeagent_ha_primary_ready"
+        wait "$${postgres_pid}"
+    volumes:
+      - primary_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f "$$PGDATA/.officeagent_ha_primary_ready" && pg_isready -U postgres -d officeagent_ha
+      interval: 1s
+      timeout: 3s
+      retries: 60
+      start_period: 3s
+    networks: [ha]
+
+  standby-init:
+    image: *postgres-image
+    profiles: [tools]
+    user: postgres
+    environment:
+      PGPASSWORD: ${OFFICEAGENT_HA_PASSWORD:?required}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        test ! -s "$${PGDATA}/PG_VERSION"
+        pg_basebackup \
+          --host primary \
+          --username postgres \
+          --pgdata "$${PGDATA}" \
+          --format plain \
+          --wal-method stream \
+          --checkpoint fast \
+          --label officeagent-ha-local
+        printf '%s\n' \
+          "primary_conninfo = 'host=primary port=5432 user=postgres passfile=/run/officeagent-ha/.pgpass application_name=officeagent_ha_standby'" \
+          >> "$${PGDATA}/postgresql.auto.conf"
+        touch "$${PGDATA}/standby.signal"
+        chmod 0700 "$${PGDATA}"
+    volumes:
+      - standby_data:/var/lib/postgresql/data
+    networks: [ha]
+
+  standby:
+    image: *postgres-image
+    environment:
+      OFFICEAGENT_HA_PASSWORD: ${OFFICEAGENT_HA_PASSWORD:?required}
+    entrypoint: ["/bin/bash", "-ceu"]
+    command:
+      - |
+        install -d -m 0700 -o postgres -g postgres /run/officeagent-ha
+        umask 077
+        printf '%s\n' \
+          "primary:5432:replication:postgres:$${OFFICEAGENT_HA_PASSWORD}" \
+          > /run/officeagent-ha/.pgpass
+        chown postgres:postgres /run/officeagent-ha/.pgpass
+        exec docker-entrypoint.sh postgres \
+          -c hot_standby=on \
+          -c cluster_name=standby
+    volumes:
+      - standby_data:/var/lib/postgresql/data
+    tmpfs:
+      - /run/officeagent-ha:rw,noexec,nosuid,nodev
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test "$$(psql -U postgres -d officeagent_ha -Atqc 'SELECT pg_is_in_recovery()')" = t
+      interval: 1s
+      timeout: 3s
+      retries: 60
+      start_period: 3s
+    networks: [ha]
+
+  migration:
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    environment:
+      OFFICEAGENT_DATABASE_URL: postgresql://postgres:${OFFICEAGENT_HA_PASSWORD:?required}@primary:5432/officeagent_ha
+    command: ["officeagent-migrate"]
+    networks: [ha]
+
+  route-probe:
+    image: *postgres-image
+    profiles: [tools]
+    environment:
+      PGPASSWORD: ${OFFICEAGENT_HA_PASSWORD:?required}
+      PGHOST: primary,standby
+      PGPORT: 5432,5432
+      PGDATABASE: officeagent_ha
+      PGUSER: postgres
+      PGTARGETSESSIONATTRS: read-write
+      PGCONNECT_TIMEOUT: "2"
+    entrypoint:
+      - psql
+      - --no-psqlrc
+      - --set
+      - ON_ERROR_STOP=1
+      - --tuples-only
+      - --no-align
+    command: ["--command", "SELECT current_setting('cluster_name')"]
+    networks: [ha]
+
+networks:
+  ha:
+    internal: true
+
+volumes:
+  primary_data:
+  standby_data:

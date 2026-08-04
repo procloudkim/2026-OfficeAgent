@@ -19,7 +19,8 @@ RUN ! command -v node >/dev/null 2>&1 \
 COPY tests ./tests
 COPY evals ./evals
 COPY Dockerfile.test .dockerignore ./
-COPY compose.recovery-drill.yaml ./
+COPY compose.recovery-drill.yaml compose.ha-local.yaml ./
+COPY .github/workflows/quality-gates.yml ./.github/workflows/quality-gates.yml
 COPY retrobot/SKILL.md ./retrobot/
 COPY retros/WORKLOG.md ./retros/
 COPY scripts/__init__.py scripts/live_smoke.py scripts/live_smoke_contract.py scripts/postgres_recovery_drill_init.sh scripts/retrobot_context.py scripts/retrobot_guard.py scripts/retrobot_publish.py scripts/validate_documentation.py ./scripts/

@@ -71,6 +71,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `src/officeagent/infrastructure/structured_answer.py` | 한 필드 Codex JSON의 bounded incremental plaintext decoder |
 | `src/officeagent/infrastructure/migrations.py` | forward-only apply/check와 read-only readiness probe |
 | `src/officeagent/infrastructure/postgres_recovery_drill.py` | source migration-ledger를 검증하는 disposable logical restore·physical PITR orchestration |
+| `src/officeagent/infrastructure/postgres_ha_drill.py` | local async streaming standby·route fence·수동 promotion과 cleanup orchestration |
 | `src/officeagent/infrastructure/test_runner.py` | isolated PostgreSQL suite DB lifecycle·credential-name/effective-libpq-target guards |
 | `src/officeagent/migrations/0001_v2_schema.sql` | initial document/vector/cache/revision schema |
 | `src/officeagent/migrations/0002_document_chunking_version.sql` | legacy sentinel을 갖는 document chunking-policy forward migration |
@@ -100,6 +101,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `tests/test_timing_observability.py` | V1/V2·QA timing path, privacy, cancellation과 sink-failure 계약 |
 | `tests/test_evaluation_*.py` | dataset hash·승인·split, lexical metric, runner와 local disposable DB fail-closed 계약 |
 | `tests/test_postgres_recovery_drill.py` | Docker endpoint·환경·Compose·target·cleanup의 offline recovery 계약 |
+| `tests/test_postgres_ha_drill.py` | async replication·same-route fence/promotion·tmpfs passfile·cleanup의 offline HA-drill 계약 |
 | `tests/test_prompts.py` | client-controlled prompt metadata attribute boundary |
 | `tests/test_prompt_packing.py` | 완성 prompt proxy budget, rank 보존, citation subset, partial no-cache와 budget 기권 |
 | `tests/test_retrobot_hook.py` | hook 입력 metadata·timeline cell·explicit stage/commit 구조 계약 |
@@ -124,6 +126,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 |---|---|
 | `compose.yaml` | digest-pinned DB, health, migrate와 isolated test topology |
 | `compose.recovery-drill.yaml` | port 없는 internal PostgreSQL 17 logical restore·physical PITR 전용 topology |
+| `compose.ha-local.yaml` | port 없는 internal PostgreSQL 17 primary·async standby 수동 promotion topology |
 | `.github/workflows/quality-gates.yml` | exact candidate SHA의 lock·host·Docker·readiness·문서 CI |
 | `Dockerfile.test`, `.dockerignore` | locked Linux image, bounded context, offline guard/live-harness import와 Node/Codex 배제 |
 | `pyproject.toml`, `uv.lock` | Python build, locked dependencies, tool config |

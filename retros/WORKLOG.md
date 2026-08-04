@@ -997,3 +997,52 @@
 - 이 변경은 stale vector 정합성 위험을 줄이지만 사용자 승인 gold actual run이나
   retrieval·answer 품질 향상을 증명하지 않는다. commit·Retrobot·remote exact-SHA와
   hosted gate 전에는 최종 제출 완료로 승격하지 않는다.
+
+## 2026-08-04 — local async standby fence와 수동 promotion drill
+
+### Why와 비범위
+
+- recovery drill은 backup/restore 경계를 검증하지만, 실행 중 standby의 WAL replay와
+  promotion 전후 routing 절차를 다루지 않는다. 이 간극을 제품 DB와 분리된 opt-in
+  local PostgreSQL 17 drill로 확인했다.
+- 범위는 같은 Docker backend의 수동 async standby 절차다. automatic failover,
+  election/quorum, production fencing, cross-host failure, zero-loss, RPO/RTO와 product
+  traffic cutover는 구현하거나 주장하지 않는다.
+
+### TDD와 보안 교정
+
+- 최초 offline 계약은 37개가 통과했지만 냉독에서 네 가지 fail-open 위험을 찾았다.
+  promotion 전 read-write route의 임의 nonzero를 성공 증거로 받았고, replication
+  passfile이 named PGDATA에 남았으며, teardown return code 뒤 실제 residue를 재조회하지
+  않았고, cleanup fence executor 예외가 down retry보다 먼저 빠져나갈 수 있었다.
+- RED는 새 observation field 부재로 collection 단계에서 확인했다. 이후 read-write
+  거절 직후 같은 multi-host route를 `any`로 재사용해 recovering standby 연결을
+  증명하고, passfile을 startup-time `0600` tmpfs로 옮겼다. cleanup은 project
+  container·volume·network와 전용 local image 부재를 각각 재조회하며, fence 예외 뒤에도
+  bounded down을 실행한다.
+- 최종 focused contract는 46개가 통과했다. Compose model과 대상 Ruff도 통과했고,
+  새 파일은 commit 때 non-executable `100644`로 고정한다.
+
+### Actual runtime과 추가 결함 발견
+
+- 첫 actual 실행은 `start-primary`에서 fail-closed했다. 재현 결과 socket readiness가
+  성공했어도 초기화 중 target database가 아직 없을 수 있는 레이스였다. primary
+  wrapper를 대상 DB의 실제 `SELECT 1` 성공까지 기다리도록 바꾸고 regression을
+  추가했다.
+- 재실행은 PostgreSQL 17, 양 노드 migration head `0003`·source checksum 일치,
+  `streaming|async`, marker와 replay LSN, fence 전 primary route, old-primary stop,
+  promotion 전 read-write 거절과 동일 route `standby|t`, 수동 promotion 뒤 동일 route
+  write를 모두 확인했다. tmpfs passfile proof와 cleanup 후 HA prefix container·volume·
+  network·local migration image 잔여 `0`도 확인한 뒤 제한된 JSON `PASS`가 발급됐다.
+
+### Fact check와 남은 증거
+
+- PostgreSQL 17 공식 문서에서 streaming replication의 기본 async·data-loss window,
+  `standby.signal`, `target_session_attrs=read-write|any`, `pg_promote`,
+  `pg_stat_replication.sync_state=async`와 Unix password file `0600` 조건을 대조했다.
+- current tree에서 lock·Ruff, host `310 passed, 22 skipped`, canonical Docker PostgreSQL/
+  pgvector `326 passed, 6 skipped`, documentation validator 8 files·78 links를 확인했다.
+- CI는 실제 failover를 실행하지 않고 Compose model과 offline contract만 검사한다.
+  이 actual 결과도 아직 dirty-tree 증거이므로 source·Retrobot commit과 remote push 뒤
+  exact SHA에서 전체 host/Docker/runtime/hosted gate를 다시 실행할 때까지 선택 운영
+  항목은 `PARTIAL`이다.

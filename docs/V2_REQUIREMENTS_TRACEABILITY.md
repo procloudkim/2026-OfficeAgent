@@ -7,7 +7,7 @@
 | V1 rollback | `29a429f16616ff63dd6ef175b870ec042be10e71` |
 | 최초 evidence 기준선 | `4a596b008cfc0470c1f2d30ad59ce5f122d9995d` |
 | 제출 결론 | `CANDIDATE` — final exact-SHA 8-profile bundle과 push 전에는 완료 판정을 보류; `main` merge는 수행하지 않음 |
-| 정직한 잔여 | `REQ-09`·`PROC-04`는 `PARTIAL`; final current-SHA profile 재검증 필요; gold v1 채택·실제 Codex 평가는 `PARTIAL`; local recovery drill은 production HA/RPO/RTO 증거가 아님; 성능 gate는 `PLANNED` |
+| 정직한 잔여 | `REQ-09`·`PROC-04`는 `PARTIAL`; final current-SHA profile 재검증 필요; gold v1 채택·실제 Codex 평가는 `PARTIAL`; local recovery·async standby drill은 production HA/RPO/RTO 증거가 아님; 성능 gate는 `PLANNED` |
 
 ## 이 문서를 읽는 방법
 
@@ -44,10 +44,11 @@ V1의 과거 test/live smoke를 V2 증거로 재사용하지 않는다. 아래 �
 
 | current-tree local 경계 | 실행 결과 | 제출 한계 |
 |---|---|---|
-| host static/offline | lock·Ruff `PASS`; `264 passed, 22 skipped`; docs validator 8 files·69 links `PASS` | exact committed SHA 아님 |
-| canonical Docker | `280 passed, 6 skipped` | actual Codex·remote parity 미포함 |
+| host static/offline | lock·Ruff `PASS`; `310 passed, 22 skipped`; docs validator 8 files·78 links `PASS` | exact committed SHA 아님 |
+| canonical Docker | `326 passed, 6 skipped` | actual Codex·remote parity 미포함 |
 | product migration | 기존 local `0002`에서 `0003` 적용, 재검사 no-op, ledger `3`, 두 policy column default 제거, PostgreSQL `17.10`·pgvector `0.8.6` | local development DB 증거; production migration 아님 |
 | disposable recovery | PostgreSQL 17, pgvector 0.8.6, logical/PITR `migration_head=0003`, 양쪽 checksum `true`, WAL `6`, cleanup-before-receipt | local dirty-tree 증거; production HA/RPO/RTO·exact-SHA 영수증 아님 |
+| disposable async standby | PostgreSQL 17, 양 노드 migration `0003` checksum 일치, `streaming|async`, marker/LSN replay, fence 전 primary route, promotion 전 read-write 거절+동일 `any` route `standby|t`, 수동 promotion 뒤 write, tmpfs passfile, scoped cleanup 잔여 `0` | local dirty-tree 증거; automatic failover·production HA·zero-loss·RPO/RTO·exact-SHA 영수증 아님 |
 
 아래 recovery receipt는 `0003` 추가 직전 C4 tree에서 실행한 역사 증거입니다. 현재
 `0003` candidate의 recovery 실행으로 재사용하지 않습니다.
@@ -103,10 +104,11 @@ candidate에서 `PARTIAL`입니다.
 | `OPS-03` | isolated Compose test와 suite별 temporary database | `VERIFIED` |
 | `OPS-04` | raw question/evidence 없는 terminal timing receipt와 best-effort JSON sink | `PARTIAL` — local·과거 hosted 회귀 PASS; final current-SHA bundle 전 |
 | `OPS-05` | 논리 snapshot restore와 physical base backup + archived-WAL target recovery, source migration head·checksum ledger를 분리 검증하는 local disposable drill | `PARTIAL` — current dirty-tree `0003` actual `PASS`(양쪽 checksum 일치, WAL `6`, cleanup-before-receipt); exact committed SHA 영수증 전 |
+| `OPS-06` | local async streaming standby의 marker/LSN replay, explicit old-primary stop, same-route read-write 거절·`any` recovering-standby 연결, 수동 promotion·write, tmpfs passfile와 post-cleanup 부재 재조회 | `PARTIAL` — current dirty-tree actual `PASS`; exact committed SHA와 hosted static gate 전 |
 
-`OPS-05`는 공식 과제 rule이 아닌 선택 운영 증거입니다. local drill 결과를
-production recoverability, RPO/RTO 또는 HA로 승계하지 않으며 `REQ-09`의 점수 판정도
-바꾸지 않습니다.
+`OPS-05`·`OPS-06`은 공식 과제 rule이 아닌 선택 운영 증거입니다. local drill 결과를
+production recoverability/HA, automatic failover, zero-loss 또는 RPO/RTO로 승계하지
+않으며 `REQ-09`의 점수 판정도 바꾸지 않습니다.
 
 ## 3. 공식 테스트와 double 경계
 
@@ -232,5 +234,6 @@ final 제출 판정은 §7처럼 exact-SHA bundle을 다시 실행한 뒤 승격
   evidence에는 `VERIFIED`를 유지합니다. DEC-012는 branch에서 DEC-013이 supersede했습니다.
 - C0 workflow는 `d86f4c4`의 hosted run #2에서 PASS했지만 이후 HEAD의 증거로
   승계하지 않습니다. timing source는 구현했어도 benchmark·SLO로 표현하지 않으며,
-  local backup/restore·PITR drill은 `PARTIAL`로 분리합니다. 이를 production
-  recoverability, RPO/RTO나 HA로 표현하지 않습니다.
+  local backup/restore·PITR와 async standby drill은 `PARTIAL`로 분리합니다. 이를
+  production recoverability/HA, automatic failover, zero-loss나 RPO/RTO로 표현하지
+  않습니다.

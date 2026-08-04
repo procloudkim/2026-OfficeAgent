@@ -19,8 +19,9 @@
 | C. 제품 수동 실행 | 위 항목 + Codex 로그인 | 질문 시 있음 | upload→retrieve→Codex→SSE·citation | API 관찰 |
 | D. Actual live smoke | 위 항목 + 명시적 승인 | 샘플 문서·질문 | miss→hit→update→miss와 실제 delta | 최종 통합 확인 |
 | E. Recovery drill | Docker, Python, uv, local Unix socket | 없음 | 논리 복원과 local physical PITR | 선택 가산점 확인 |
+| F. Standby drill | Docker, Python, uv, local Unix socket | 없음 | local async streaming·fence·수동 promotion | 선택 운영 경계 확인 |
 
-평가자는 A부터 시작한다. D와 E는 필수 단계가 아니다. `scripts.live_smoke`는 공개 sample
+평가자는 A부터 시작한다. D·E·F는 필수 단계가 아니다. `scripts.live_smoke`는 공개 sample
 fixture를 사용하더라도 검색 문맥과 질문을 외부 Codex 서비스로 보내므로, 전송을
 승인한 환경에서만 실행한다.
 
@@ -191,6 +192,96 @@ cluster-global role/tablespace 복원, RPO/RTO/SLO와 HA를 증명하지 않습�
 - [`pg_verifybackup`](https://www.postgresql.org/docs/17/app-pgverifybackup.html): manifest
   검사는 실제 server recovery를 대신하지 않으므로 test restore를 별도로 수행해야
   합니다.
+
+### 3.4 일회용 PostgreSQL 비동기 standby drill
+
+이 선택 명령은 Codex·제품 database·제품 credential을 사용하지 않습니다. local
+Unix-socket Docker context와 최초 image/build download를 위한 network 또는 cache가
+필요할 수 있습니다.
+
+```bash
+uv run --frozen python -m officeagent.infrastructure.postgres_ha_drill
+```
+
+runner는 repository-owned [`compose.ha-local.yaml`](../compose.ha-local.yaml)과 random
+`officeagent-ha-<12hex>` project를 사용합니다. 현재 제품 migration을 primary에
+적용하고 physical base backup으로 standby를 만듭니다. source checksum은 runner가
+발견한 migration SQL bytes의 SHA-256 ledger입니다. 다음 증거가 모두 있어야 cleanup
+뒤 제한된 JSON `PASS`를 출력합니다.
+
+1. PostgreSQL major `17`, 양 노드 migration head `0003`과 source checksum 일치
+2. primary의 `pg_stat_replication`이 `streaming|async`
+3. standby가 recovery 중이며 marker와 해당 replay LSN에 도달
+4. fence 전 multi-host read-write route가 `primary` 선택
+5. old primary stop 뒤 standby에서 marker read 성공
+6. promotion 전 read-write route는 실패하고, 같은 route의 `any` 연결은
+   `standby|t`를 반환
+7. 수동 `pg_promote(true, 60)` 뒤 같은 read-write route가 standby를 선택해 실제 write
+8. old primary는 계속 stopped이며 project container·volume·network·전용 local
+   image 잔여가 없음
+
+`target_session_attrs=any`는 read-only를 요구하지 않습니다. 같은 route의 DNS·인증·
+접속 가능성을 별도로 확인하고, 반환된 `pg_is_in_recovery()=t`가 선택된 standby의
+read-only recovery 상태를 증명합니다. 두 probe 사이의 모든 transient 원인까지
+배제한다고 주장하지 않습니다.
+
+standby의 replication passfile은 container 시작 때 `0600`으로 runtime tmpfs에
+생성합니다. runner가 tmpfs file의 `0600:postgres`와 PGDATA `.pgpass` 부재를 runtime에서
+검사합니다. `primary_conninfo`에는 이 tmpfs 경로만 기록합니다. Compose는 host port,
+restart policy, Docker socket,
+LLM credential과 자동 failover manager를 허용하지 않습니다. CI는 이 Compose model과
+offline contract만 검사하며 실제 promotion을 실행하지 않습니다. 정적 gate 정의는
+[`quality-gates` workflow](../.github/workflows/quality-gates.yml)입니다.
+
+정상 성공은 exit code `0`과 stdout의 credential-free JSON 한 줄입니다. 검증된 운영
+실패와 예상 밖 내부 오류는 sanitized stderr와 exit `1`, 사용자 interrupt는 exit
+`130`으로 끝나며 `PASS`를 출력하지 않습니다. 핵심 shape 예시는 다음과 같고 실제
+receipt에는 raw LSN, password, DSN, project/resource ID를 넣지 않습니다.
+
+```json
+{
+  "status": "PASS",
+  "classification": "local_async_streaming_standby_drill",
+  "postgres_major": 17,
+  "migration": {"head": "0003", "checksums_verified_on_both_nodes": true},
+  "replication": {"state": "streaming", "synchronization": "async"},
+  "credentials": {"replication_passfile_storage": "runtime_tmpfs"},
+  "cleanup": "completed_before_receipt"
+}
+```
+
+이 증거의 범위는 한 local Docker backend 안의 비동기 standby와 수동 운영 순서입니다.
+automatic election/failover, quorum, production split-brain fencing, cross-host failure,
+zero-loss, RPO/RTO, monitoring과 product traffic cutover를 뜻하지 않습니다. PostgreSQL
+streaming replication은 기본적으로 비동기이므로 primary 장애 시 아직 전달되지 않은
+transaction이 손실될 수 있습니다.
+
+비정상 종료로 runner가 cleanup하지 못한 경우 `docker compose ls --all`에서 exact
+`officeagent-ha-[0-9a-f]{12}` project를 먼저 확인합니다. 다른 project나 제품 volume에
+사용하지 말고 해당 exact 이름에만 다음 명령을 실행합니다.
+
+```bash
+OFFICEAGENT_HA_PASSWORD=cleanup-only \
+docker compose --file compose.ha-local.yaml \
+  --project-name officeagent-ha-<12hex> \
+  --profile tools down --volumes --remove-orphans --rmi local
+```
+
+`cleanup-only`는 Compose의 required-variable interpolation만 만족하는 비제품 dummy이며,
+resource 선택은 exact project name으로 제한됩니다.
+
+용어와 판정은 PostgreSQL 17 공식 문서에 맞춥니다.
+
+- [Warm standby와 streaming replication](https://www.postgresql.org/docs/17/warm-standby.html):
+  `standby.signal`, 기본 async streaming, promotion과 데이터 손실 window를 설명합니다.
+- [libpq 연결 제어](https://www.postgresql.org/docs/17/libpq-connect.html): multi-host와
+  `target_session_attrs=read-write|any`의 수용 조건을 정의합니다.
+- [`pg_promote`](https://www.postgresql.org/docs/17/functions-admin.html): 대기형 수동
+  promotion의 성공 의미를 정의합니다.
+- [`pg_stat_replication`](https://www.postgresql.org/docs/17/monitoring-stats.html):
+  `sync_state=async`의 의미를 정의합니다.
+- [Password file](https://www.postgresql.org/docs/17/libpq-pgpass.html): Unix password
+  file은 group/world access를 금지해야 하며 `0600`을 예로 듭니다.
 
 ## 4. 제품 API를 처음부터 실행한다
 
@@ -389,6 +480,7 @@ structured 응답이 중간에 실패하면 이미 보낸 provisional delta는 �
 | Codex 인증 오류 | login 만료·잘못된 `CODEX_HOME` | host에서 다시 로그인; credential을 container에 mount하지 않음 |
 | 첫 delta timeout | process/network 지연 | 첫 visible delta 전 한 번만 retry; 원인 확인 뒤 timeout 조정 |
 | 반복 `answer.error` | malformed output·item 불일치 | 실패 답을 cache하지 말고 protocol test로 재현 |
+| standby drill `failed` | readiness·replication·route·promotion 또는 cleanup proof 누락 | sanitized step 이름을 확인하고 exact random project 잔여만 정리; PASS로 해석하지 않음 |
 | Retrobot 회고가 없음 | hook 미설정·skip·guard 거부 | [Retrobot manual](../retrobot/README.md)의 독립 검증 실행 |
 
 migration check:

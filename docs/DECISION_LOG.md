@@ -18,13 +18,13 @@ remote parity와 runtime freshness는
 ## Register
 
 `DEC-001`~`DEC-009`는 제출 가능한 V1 기준선의 ACTIVE 결정입니다.
-`DEC-010`, `DEC-011`, `DEC-013`~`DEC-019`는 P0-08 계약에 따라 `PROPOSED` overlay로
+`DEC-010`, `DEC-011`, `DEC-013`~`DEC-020`는 P0-08 계약에 따라 `PROPOSED` overlay로
 유지하며 V1 결정을 대체하지 않습니다. `DEC-012`의 structured-output 보류는
 V2 branch에서 `DEC-013`이 supersede했습니다. 이 lifecycle과 별개로 현재
 구현·검증 evidence는 V2 Traceability에서 판정합니다.
 
 P0-08은 구현 미완료 표지가 아니라 V1 rollback 결정을 `main`에서 자동 supersede하지
-않도록 미리 고정한 review 경계입니다. DEC-010·011·013~019는 `main`
+않도록 미리 고정한 review 경계입니다. DEC-010·011·013~020은 `main`
 supersession에 대해 `PROPOSED`입니다. V2 branch의 구현 evidence는 V2
 Traceability에서 별도로 판정하며, DEC-018·019의 품질 evidence는
 `INT-CHUNK-01` 판정을 따릅니다.
@@ -50,6 +50,7 @@ Traceability에서 별도로 판정하며, DEC-018·019의 품질 evidence는
 | DEC-017 | PROPOSED | 논리 snapshot restore와 physical archived-WAL PITR를 분리한 opt-in disposable PostgreSQL 17 drill을 둔다. | backup 생성 명령의 존재보다 실제 restore 가능성과 PITR 용어 경계를 실행으로 확인한다. | 제품 migration runner와 source ledger, dedicated replication role, custom dump restore, verified base backup, target 전·후 marker replay, promotion과 cleanup-before-receipt를 검사한다. | 같은 local Docker backend의 합성 증거이며 schedule·retention·off-host copy·encryption·monitoring, production RPO/RTO와 HA를 제공하지 않는다. | `compose.recovery-drill.yaml`, `src/officeagent/infrastructure/postgres_recovery_drill.py`, `tests/test_postgres_recovery_drill.py`, [Evaluator Manual](EVALUATOR_MANUAL.md#33-일회용-postgresql-복구-drill) | — |
 | DEC-018 | PROPOSED | page-safe chunk에 기본 900 code point·900 `o200k_base` proxy-token 이중 상한과 150 code-point overlap을 적용하고 policy를 versioning한다. | token-dense 입력의 과대 chunk를 제한하고 경계 변경 후 이전 vector·answer cache를 조용히 재사용하지 않는다. | algorithm, 상한, overlap, tokenizer identity를 digest해 `documents.chunking_version`과 retrieval identity에 연결한다. `0002`는 legacy row를 unknown-settings로 표시하고 same-file reupload의 policy mismatch만 `UPDATED`·재청킹·전체 cache invalidation으로 이관한다. | overlap은 code-point 단위고 grapheme 경계·background rechunk는 제공하지 않는다. semantic 경계, 정확한 Codex tokenizer, gold-set 품질 향상을 보장하지 않고 policy 변경 시 embedding·cache reuse가 줄어든다. | `src/officeagent/application/chunking.py`, `src/officeagent/migrations/0002_document_chunking_version.sql`, `tests/test_parsers_and_chunking.py`, `tests/test_postgres_corpus_store.py` | — |
 | DEC-019 | PROPOSED | persisted vector의 indexing ID를 chunking ID와 embedding version의 digest로 정의하고 domain policy에서 단일 계산한다. | embedding 교체 뒤 같은 bytes가 `UNCHANGED`로 남아 old document vector와 new query vector를 비교하는 silent drift를 막는다. | `0003`은 legacy row를 unknown-settings로 표시한다. same-file reupload에서 content·chunking·indexing이 모두 같을 때만 no-op이며 indexing mismatch는 재embedding과 전체 cache invalidation을 수행한다. | background reindex는 없으므로 legacy row는 명시적 재업로드가 필요하다. digest는 raw identity를 복제하지 않지만 비밀화 수단은 아니다. policy 변경 시 cache와 embedding reuse가 줄어든다. | `src/officeagent/domain/indexing.py`, `src/officeagent/infrastructure/postgres_corpus_store.py`, `src/officeagent/migrations/0003_document_indexing_version.sql`, `tests/test_migrations.py`, `tests/test_postgres_corpus_store.py` | — |
+| DEC-020 | PROPOSED | 같은 local Docker backend에서 PostgreSQL 17 async streaming standby의 fence와 수동 promotion 절차를 opt-in drill로 검증한다. | production HA를 가장하지 않으면서 WAL replay, routing, promotion과 cleanup 실패 경계를 실행 증거로 만든다. | source migration ledger, `streaming|async`, marker/LSN replay, explicit primary stop, read-write 거절 뒤 동일 `any` route의 recovering-standby 연결, `pg_promote`, post-promotion write와 resource 부재를 fail-closed로 확인한다. passfile은 runtime tmpfs에 둔다. | automatic failover/election/quorum, production fencing, cross-host failure, zero-loss, RPO/RTO와 traffic cutover를 제공하지 않는다. 같은 daemon과 storage/network failure domain의 수동 합성 증거다. | `compose.ha-local.yaml`, `src/officeagent/infrastructure/postgres_ha_drill.py`, `tests/test_postgres_ha_drill.py`, [Evaluator Manual](EVALUATOR_MANUAL.md#34-일회용-postgresql-비동기-standby-drill) | — |
 
 ## History Policy
 
@@ -62,6 +63,9 @@ Traceability에서 별도로 판정하며, DEC-018·019의 품질 evidence는
 - evidence/receipt 상태는 불변 source commit에 연결하고 최신 Submission HEAD는 Control sync에서 갱신한다.
 ## Revision History
 
+- 2026-08-04: local async streaming standby의 route·fence·수동 promotion과
+  cleanup-before-receipt 경계를 DEC-020으로 기록했다. automatic failover와 production
+  HA/RPO/RTO는 주장하지 않는다.
 - 2026-08-04: chunking·embedding을 함께 묶는 document indexing identity와
   forward-only `0003` same-file 재색인 경계를 DEC-019로 기록했다. background
   reindex나 품질 향상은 주장하지 않는다.

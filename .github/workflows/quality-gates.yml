@@ -57,6 +57,11 @@ jobs:
           OFFICEAGENT_DRILL_PASSWORD: ci-model-only
         run: docker compose --file compose.recovery-drill.yaml --profile tools config --quiet
 
+      - name: Validate HA-drill Compose model without running failover
+        env:
+          OFFICEAGENT_HA_PASSWORD: ci-model-only
+        run: docker compose --file compose.ha-local.yaml --profile tools config --quiet
+
       - name: Build locked test image
         run: docker compose build test
 
