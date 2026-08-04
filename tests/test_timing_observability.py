@@ -99,7 +99,12 @@ class _CorpusWriter:
         cache_versions: CacheVersions,
         retrieval_threshold: float,
     ) -> IngestionResult:
-        del chunking_version, embeddings, cache_versions, retrieval_threshold
+        del (
+            chunking_version,
+            embeddings,
+            cache_versions,
+            retrieval_threshold,
+        )
         self.calls += 1
         now = datetime(2026, 8, 3, tzinfo=UTC)
         return IngestionResult(
@@ -283,6 +288,29 @@ async def test_transactional_ingestion_uses_the_same_stage_contract(
         "stages_ms": {"embed": 1.0, "parse": 2.0, "persist": 1.0},
         "total_ms": 9.0,
     }
+
+
+async def test_transactional_ingestion_rejects_embedding_version_drift(
+    test_data_dir,
+) -> None:
+    runtime = await build_test_runtime(test_data_dir)
+    mismatched_versions = CacheVersions(
+        prompt_version=runtime.cache_versions.prompt_version,
+        embedding_version="different-embedding-version",
+        retrieval_version=runtime.cache_versions.retrieval_version,
+    )
+
+    with pytest.raises(ValueError, match="embedding versions must match"):
+        TransactionalIngestionService(
+            _CorpusWriter(),
+            runtime.embeddings,
+            chunk_size=300,
+            chunk_overlap=50,
+            token_limiter=_CharacterTokenLimiter(),
+            max_upload_bytes=1_000_000,
+            cache_versions=mismatched_versions,
+            retrieval_threshold=0.5,
+        )
 
 
 async def test_error_receipt_sanitizes_request_id_and_exception_message(

@@ -946,3 +946,54 @@
   `REQ-09=PARTIAL` 사이에 material contradiction이 없다고 판정했다.
 - 사용자 승인 gold actual run과 final exact-SHA hosted/runtime 영수증 전에는
   `INT-CHUNK-01`을 `PARTIAL`로 유지한다.
+
+## 2026-08-04 — embedding-aware document index identity
+
+### 발견과 TDD
+
+- dual-bound chunking 검수 중 같은 filename과 bytes를 다시 올릴 때 embedding model
+  version은 `UNCHANGED` 판정에 포함되지 않는 것을 발견했다. 이 상태에서 model만
+  교체하면 이전 document vector와 새 query vector를 조용히 비교할 수 있었다.
+- 최초 RED는 `build_indexing_version` import 부재로 collection 단계에서 실패했다.
+  이후 chunking·embedding 입력별 digest 변화, `0001→0002→0003`과
+  `0002→0003` legacy row 보존, embedding-only same-byte 재색인과 cache invalidation을
+  회귀 테스트로 고정했다.
+
+### 구현과 유지보수 경계
+
+- `0003_document_indexing_version.sql`은 기존 row에
+  `legacy-document-index-v1:unknown-settings`를 backfill한 뒤 column default를 제거하고
+  nonblank constraint를 건다. immutable `0002`는 수정하지 않았다.
+- current indexing ID는 chunking ID와 embedding version을 SHA-256 digest한다. raw
+  identity 문자열을 DB에 복제하지 않지만 digest를 암호화나 비밀화로 주장하지 않는다.
+- 초기 구현은 service가 계산한 indexing ID를 store에 별도 인자로 전달했다. 냉독에서
+  두 입력이 어긋날 수 있는 유지보수 위험을 찾아, domain policy가 chunking ID와 cache
+  embedding version이라는 단일 입력 경계에서 계산하도록 줄였다. infrastructure가
+  application을 역참조하지 않으며, service는 실제 embedding provider와 cache
+  embedding version 불일치를 시작 시 거부한다.
+- same bytes라도 indexing policy가 달라지면 새 document version과 embedding을
+  transaction으로 저장하고 active cache를 `indexing_configuration_changed`로 전체
+  무효화한다. legacy row의 background reindex는 하지 않으며 same-filename 재업로드가
+  필요하다.
+
+### Fact check, shower와 실행 증거
+
+- application composition, store SQL, migration ledger, readiness contract와 평가자 문서를
+  양방향 대조했다. 과거 `0002` recovery receipt는 역사 증거로 보존하고 현재 runtime
+  target만 `0003`으로 갱신했다.
+- 무맥락 최종 냉독이 환경별 test 수의 중복 SSOT, pre-`0003` recovery의 현재성 혼동,
+  Architecture 상단의 오래된 no-op 조건, infrastructure→application 역참조, 역사 PRD의
+  소급 수정을 차단했다. test 수는 상단 표 한 곳으로 모으고 recovery를 역사 run으로
+  표시했으며, identity 함수를 domain으로 이동하고 PRD baseline 변경을 되돌렸다.
+- host lock·Ruff와 pytest `264 passed, 22 skipped`, documentation validator 8 files·
+  69 links를 통과했다. canonical Docker는 실제 PostgreSQL/pgvector에서
+  `280 passed, 6 skipped`였다.
+- 기존 local `0002` DB에 `0003`을 적용한 뒤 재실행 no-op, migration ledger 3개,
+  `chunking_version`·`indexing_version` default 제거, PostgreSQL `17.10`과 pgvector
+  `0.8.6`을 확인했다.
+- current `0003` tree에서 disposable recovery drill을 새로 실행해 logical restore와
+  physical PITR 모두 migration head `0003`·source checksum 일치, WAL `6`, promotion과
+  cleanup-before-receipt를 확인했다. pre-`0003` `0002` receipt는 역사 증거로만 남긴다.
+- 이 변경은 stale vector 정합성 위험을 줄이지만 사용자 승인 gold actual run이나
+  retrieval·answer 품질 향상을 증명하지 않는다. commit·Retrobot·remote exact-SHA와
+  hosted gate 전에는 최종 제출 완료로 승격하지 않는다.

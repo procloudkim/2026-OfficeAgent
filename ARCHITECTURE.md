@@ -58,14 +58,15 @@ flowchart LR
 4. normalized filename advisory lock을 얻고 현재 hash/version을 다시 읽습니다.
 5. document row, chunk text/vector, cache invalidation, ready 전환과 corpus revision을
    한 PostgreSQL transaction에서 변경합니다.
-6. same-byte ready document는 저장된 chunking policy까지 현재 policy와 같을 때만
-   version/revision/cache의 no-op입니다. policy가 다르면 같은 bytes도 새
-   version으로 재청킹하고 active answer cache 전체를 무효화합니다.
+6. same-byte ready document는 저장된 chunking·indexing policy까지 현재 policy와
+   같을 때만 version/revision/cache의 no-op입니다. chunking policy가 다르면
+   재청킹하고, embedding을 포함한 indexing policy가 다르면 재색인합니다. 두 경우
+   모두 새 version을 만들고 active answer cache 전체를 무효화합니다.
 
 다음 중 하나라도 실패하면 모두 rollback되고 이전 ready version과 active cache가
 유지됩니다.
 
-- 새 document/version과 `chunking_version`
+- 새 document/version과 `chunking_version`·`indexing_version`
 - `document_chunks.embedding vector(384)`
 - dependency 또는 새 evidence similarity 기반 cache invalidation
 - 이전/new ready 상태
@@ -194,7 +195,7 @@ citation과 cache 전이를 확인했습니다.
 
 | Table | 책임 |
 |---|---|
-| `documents` | stable ID/key, MIME/hash/version, chunking policy, ready, timestamps |
+| `documents` | stable ID/key, MIME/hash/version, chunking/indexing policy, ready, timestamps |
 | `document_chunks` | versioned text, page/offset provenance, `vector(384)` |
 | `corpus_state` | retrieval→LLM→cache-write race guard revision |
 | `answer_cache` | question vector, answer/citations, 세 config version, active/invalidation |
@@ -211,6 +212,14 @@ Forward-only `0002` migration은 기존 document row에
 dependency를 보존합니다. migration 자체는 원문이나 예전 설정을 추측해
 재청킹하지 않으며, 현재 policy로의 이관은 각 파일의 same-filename
 재업로드에서만 일어납니다.
+
+Forward-only `0003`은 같은 방식으로
+`legacy-document-index-v1:unknown-settings`를 적용합니다. 새 write의 indexing ID는
+domain policy 함수가 chunking ID와 cache의 embedding version에서 단일하게 계산하므로
+caller가 서로 모순된 두 값을 전달할 수 없습니다. content hash와 두 policy ID가 모두 같을
+때만 same-file upload가 no-op이고, embedding을 포함한 indexing policy만 바뀌어도
+새 vector version을 저장하고 active cache를 전체 무효화합니다. digest는 원 identity
+문자열을 DB에 복제하지 않기 위한 식별자이며 비밀화 보장은 아닙니다.
 
 ## 7. Docker·credential 경계
 

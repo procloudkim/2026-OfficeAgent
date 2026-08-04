@@ -9,7 +9,7 @@ from typing import Any
 
 EXPECTED_READINESS = {
     "status": "ready",
-    "migration_head": "0002",
+    "migration_head": "0003",
     "vector_version": "0.8.6",
 }
 

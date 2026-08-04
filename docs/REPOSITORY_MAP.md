@@ -58,6 +58,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `src/officeagent/application/chunking.py` | page-safe 문자·proxy-token 이중 상한 chunk와 policy digest |
 | `src/officeagent/application/prompts.py` | canonical grounded prompt, effective cache version과 proxy-budget packing |
 | `src/officeagent/evaluation/` | gold integrity·metric·runner·disposable DB와 CLI |
+| `src/officeagent/domain/indexing.py` | chunking·embedding 입력의 persisted-vector policy digest |
 | `src/officeagent/domain/models.py` | framework-independent values/events |
 | `src/officeagent/domain/ports.py` | storage/embedding/LLM protocols |
 | `src/officeagent/infrastructure/parsers.py` | PDF/TXT/MD extraction |
@@ -73,6 +74,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `src/officeagent/infrastructure/test_runner.py` | isolated PostgreSQL suite DB lifecycle·credential-name/effective-libpq-target guards |
 | `src/officeagent/migrations/0001_v2_schema.sql` | initial document/vector/cache/revision schema |
 | `src/officeagent/migrations/0002_document_chunking_version.sql` | legacy sentinel을 갖는 document chunking-policy forward migration |
+| `src/officeagent/migrations/0003_document_indexing_version.sql` | legacy sentinel을 갖는 document indexing-policy forward migration |
 | `src/` package `__init__.py` files | Python package boundaries only |
 | `scripts/__init__.py` | verification helper package boundary; product wheel에서 제외 |
 | `scripts/live_smoke.py` | out-of-repo cwd·local disposable DB·HTTP/Codex G7 live runner |
@@ -109,7 +111,7 @@ truth가 아닙니다. 충돌 시 `docs/PRD.md`, 그다음 현재 코드/테스�
 | `tests/test_chroma_store.py` | replace/search cosine behavior |
 | `tests/test_parsers_and_chunking.py` | formats, source-exact code-point offsets, 이중 상한, stable chunk·policy identity |
 | `tests/test_migrations.py` | apply/rerun/drift/rollback/history/concurrency와 legacy chunking-policy backfill |
-| `tests/test_postgres_corpus_store.py` | transaction/rollback/cache/revision/concurrency와 same-byte policy migration |
+| `tests/test_postgres_corpus_store.py` | transaction/rollback/cache/revision/concurrency와 same-byte chunk/index policy migration |
 | `tests/test_test_container_isolation.py` | Compose runtime·credential isolation |
 | `tests/test_v2_offline_paths.py` | real PostgreSQL/pgvector + in-process FastAPI ASGI ingestion·RAG·cache·SSE contract |
 | `tests/helpers.py` | deterministic fake ports/PDF builder |

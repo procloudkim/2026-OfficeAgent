@@ -681,6 +681,10 @@ class PostgresRecoveryDrill:
                 "SELECT 1 FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = 'documents' "
                 "AND column_name = 'chunking_version'"
+                ") AND EXISTS ("
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = 'documents' "
+                "AND column_name = 'indexing_version'"
                 ")",
                 step=step,
             ).stdout,

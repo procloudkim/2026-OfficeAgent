@@ -13,6 +13,7 @@ import anyio
 import psycopg
 from psycopg.types.json import Jsonb
 
+from officeagent.domain.indexing import build_indexing_version
 from officeagent.domain.models import (
     CachedAnswer,
     CacheVersions,
@@ -155,6 +156,10 @@ class PostgresCorpusStore:
             embeddings,
             retrieval_threshold,
         )
+        indexing_version = build_indexing_version(
+            chunking_version=chunking_version,
+            embedding_version=cache_versions.embedding_version,
+        )
         vector_literals = tuple(_vector_literal(vector) for vector in embeddings)
         normalized_key = _normalize_document_key(filename)
 
@@ -166,7 +171,8 @@ class PostgresCorpusStore:
                 )
                 current = connection.execute(
                     """
-                    SELECT document_id::text, version, content_hash, chunking_version
+                    SELECT document_id::text, version, content_hash,
+                           chunking_version, indexing_version
                     FROM documents
                     WHERE normalized_key = %s AND ready
                     FOR UPDATE
@@ -178,6 +184,7 @@ class PostgresCorpusStore:
                     current is not None
                     and str(current[2]).strip() == content_hash
                     and str(current[3]) == chunking_version
+                    and str(current[4]) == indexing_version
                 ):
                     record = _document_record(
                         connection,
@@ -207,13 +214,15 @@ class PostgresCorpusStore:
                     version = int(current[1]) + 1
                     change = DocumentChange.UPDATED
                 chunking_changed = current is not None and str(current[3]) != chunking_version
+                indexing_changed = current is not None and str(current[4]) != indexing_version
 
                 connection.execute(
                     """
                     INSERT INTO documents (
                         document_id, version, normalized_key, filename,
-                        mime_type, content_hash, chunking_version, ready
-                    ) VALUES (%s::uuid, %s, %s, %s, %s, %s, %s, false)
+                        mime_type, content_hash, chunking_version,
+                        indexing_version, ready
+                    ) VALUES (%s::uuid, %s, %s, %s, %s, %s, %s, %s, false)
                     """,
                     (
                         document_id,
@@ -223,6 +232,7 @@ class PostgresCorpusStore:
                         content_type,
                         content_hash,
                         chunking_version,
+                        indexing_version,
                     ),
                 )
                 _executemany(connection,
@@ -255,6 +265,7 @@ class PostgresCorpusStore:
                     connection,
                     change=change,
                     chunking_changed=chunking_changed,
+                    indexing_changed=indexing_changed,
                     document_id=document_id,
                     document_version=version,
                     cache_versions=cache_versions,
@@ -507,6 +518,7 @@ def _invalidate_for_change(
     *,
     change: DocumentChange,
     chunking_changed: bool,
+    indexing_changed: bool,
     document_id: str,
     document_version: int,
     cache_versions: CacheVersions,
@@ -519,6 +531,19 @@ def _invalidate_for_change(
             SET active = false,
                 invalidated_at = now(),
                 invalidation_reason = 'chunking_configuration_changed'
+            WHERE active
+            RETURNING cache_id
+            """
+        ).fetchall()
+        return len(rows)
+
+    if indexing_changed:
+        rows = connection.execute(
+            """
+            UPDATE answer_cache
+            SET active = false,
+                invalidated_at = now(),
+                invalidation_reason = 'indexing_configuration_changed'
             WHERE active
             RETURNING cache_id
             """

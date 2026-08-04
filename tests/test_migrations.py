@@ -46,8 +46,8 @@ def test_empty_database_applies_schema_and_runtime_versions(
 ) -> None:
     report = apply_migrations(empty_database_url)
 
-    assert report.migration_head == "0002"
-    assert report.applied_now == ("0001", "0002")
+    assert report.migration_head == "0003"
+    assert report.applied_now == ("0001", "0002", "0003")
     assert report.server_version.startswith("17.10")
     assert report.vector_version == "0.8.6"
     with psycopg.connect(empty_database_url) as conn:
@@ -61,7 +61,7 @@ def test_empty_database_applies_schema_and_runtime_versions(
             """
         ).fetchone()
         assert row == ("vector(384)",)
-        assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone() == (2,)
+        assert conn.execute("SELECT count(*) FROM schema_migrations").fetchone() == (3,)
         assert conn.execute(
             """
             SELECT column_default
@@ -71,15 +71,24 @@ def test_empty_database_applies_schema_and_runtime_versions(
               AND column_name = 'chunking_version'
             """
         ).fetchone() == (None,)
+        assert conn.execute(
+            """
+            SELECT column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'documents'
+              AND column_name = 'indexing_version'
+            """
+        ).fetchone() == (None,)
 
 
 def test_migration_rerun_is_idempotent(empty_database_url: str) -> None:
     first = apply_migrations(empty_database_url)
     second = apply_migrations(empty_database_url)
 
-    assert first.applied_now == ("0001", "0002")
+    assert first.applied_now == ("0001", "0002", "0003")
     assert second.applied_now == ()
-    assert second.already_applied == ("0001", "0002")
+    assert second.already_applied == ("0001", "0002", "0003")
 
 
 def test_chunking_version_migration_preserves_legacy_rows_and_dependencies(
@@ -131,14 +140,64 @@ def test_chunking_version_migration_preserves_legacy_rows_and_dependencies(
 
     report = apply_migrations(empty_database_url, migrations)
 
-    assert report.applied_now == ("0002",)
+    assert report.applied_now == ("0002", "0003")
     with psycopg.connect(empty_database_url) as conn:
         assert conn.execute(
             "SELECT chunking_version FROM documents WHERE document_id = %s::uuid",
             (document_id,),
         ).fetchone() == ("legacy-page-safe-character-v1:unknown-settings",)
+        assert conn.execute(
+            "SELECT indexing_version FROM documents WHERE document_id = %s::uuid",
+            (document_id,),
+        ).fetchone() == ("legacy-document-index-v1:unknown-settings",)
         assert conn.execute("SELECT count(*) FROM document_chunks").fetchone() == (1,)
         assert conn.execute("SELECT count(*) FROM cache_dependencies").fetchone() == (1,)
+
+
+def test_indexing_version_migration_preserves_0002_rows(
+    empty_database_url: str,
+    tmp_path: Path,
+) -> None:
+    migrations = copied_migrations(tmp_path)
+    pre_indexing_migrations = tmp_path / "pre-indexing-migrations"
+    pre_indexing_migrations.mkdir()
+    shutil.copy2(migrations / "0001_v2_schema.sql", pre_indexing_migrations)
+    shutil.copy2(
+        migrations / "0002_document_chunking_version.sql",
+        pre_indexing_migrations,
+    )
+    apply_migrations(empty_database_url, pre_indexing_migrations)
+    document_id = "00000000-0000-4000-8000-000000000003"
+    with psycopg.connect(empty_database_url) as conn:
+        conn.execute(
+            """
+            INSERT INTO documents (
+                document_id, version, normalized_key, filename, mime_type,
+                content_hash, chunking_version, ready
+            ) VALUES (
+                %s::uuid, 1, 'indexed.txt', 'indexed.txt', 'text/plain',
+                %s, 'page-safe-dual-bound-v1:known', true
+            )
+            """,
+            (document_id, "1" * 64),
+        )
+
+    report = apply_migrations(empty_database_url, migrations)
+
+    assert report.applied_now == ("0003",)
+    with psycopg.connect(empty_database_url) as conn:
+        assert conn.execute(
+            """
+            SELECT chunking_version, indexing_version, ready
+            FROM documents
+            WHERE document_id = %s::uuid
+            """,
+            (document_id,),
+        ).fetchone() == (
+            "page-safe-dual-bound-v1:known",
+            "legacy-document-index-v1:unknown-settings",
+            True,
+        )
 
 
 def test_applied_migration_checksum_change_fails_closed(
@@ -184,7 +243,7 @@ def test_non_prefix_history_fails_before_applying_missing_earlier_file(
     tmp_path: Path,
 ) -> None:
     migrations = copied_migrations(tmp_path)
-    later_file = migrations / "0003_later.sql"
+    later_file = migrations / "0004_later.sql"
     later_file.write_text("CREATE TABLE later_probe (id integer);\n", encoding="utf-8")
     later_checksum = hashlib.sha256(later_file.read_bytes()).hexdigest()
     with psycopg.connect(empty_database_url) as conn:
@@ -198,7 +257,7 @@ def test_non_prefix_history_fails_before_applying_missing_earlier_file(
             """
         )
         conn.execute(
-            "INSERT INTO schema_migrations (version, checksum) VALUES ('0003', %s)",
+            "INSERT INTO schema_migrations (version, checksum) VALUES ('0004', %s)",
             (later_checksum,),
         )
         conn.commit()
@@ -239,4 +298,4 @@ def test_migration_advisory_lock_serializes_concurrent_runners(
             lock_holder.execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK_KEY,))
             report = future.result(timeout=10)
 
-    assert report.applied_now == ("0001", "0002")
+    assert report.applied_now == ("0001", "0002", "0003")

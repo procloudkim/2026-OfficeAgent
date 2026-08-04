@@ -23,7 +23,7 @@ class FailingReadinessProbe:
 
 class SuccessfulReadinessProbe:
     async def check(self) -> ReadinessStatus:
-        return ReadinessStatus(migration_head="0002", vector_version="0.8.6")
+        return ReadinessStatus(migration_head="0003", vector_version="0.8.6")
 
 
 def _services_with(
@@ -67,7 +67,7 @@ async def test_readiness_response_and_failure_are_credential_free(
     assert ready_response.status_code == 200
     assert ready_response.json() == {
         "status": "ready",
-        "migration_head": "0002",
+        "migration_head": "0003",
         "vector_version": "0.8.6",
     }
 
@@ -105,7 +105,7 @@ async def test_readiness_echoes_configured_instance_nonce() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "migration_head": "0002",
+        "migration_head": "0003",
         "vector_version": "0.8.6",
         "instance_nonce": nonce,
     }

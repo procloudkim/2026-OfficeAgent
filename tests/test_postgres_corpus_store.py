@@ -10,6 +10,7 @@ from collections.abc import Iterator
 import psycopg
 import pytest
 
+from officeagent.domain.indexing import build_indexing_version
 from officeagent.domain.models import (
     CacheVersions,
     Citation,
@@ -217,6 +218,73 @@ async def test_same_bytes_require_matching_chunking_policy_for_unchanged() -> No
     assert policies == [(1, "chunking-v1", False), (2, "chunking-v2", True)]
     assert cache == (False, "chunking_configuration_changed")
     assert revision == (2,)
+
+
+async def test_same_bytes_reindex_when_only_embedding_policy_changes() -> None:
+    assert DATABASE_URL is not None
+    store = PostgresCorpusStore(DATABASE_URL)
+    created = await _commit(
+        store,
+        filename="embedding-version.txt",
+        content="same bytes",
+        vector_index=0,
+    )
+    snapshot = await store.retrieve(_vector(0), limit=1)
+    await store.save_cached_answer(
+        normalized_question="same embedding?",
+        question_embedding=_vector(0),
+        answer="same embedding",
+        citations=[_citation(snapshot.hits[0])],
+        cache_versions=_VERSIONS,
+        expected_revision=snapshot.revision,
+    )
+
+    next_versions = CacheVersions(
+        prompt_version=_VERSIONS.prompt_version,
+        embedding_version="embedding-384-v2",
+        retrieval_version=_VERSIONS.retrieval_version,
+    )
+    updated = await store.commit_document(
+        filename="embedding-version.txt",
+        content_type="text/plain",
+        content_hash=_digest("same bytes"),
+        chunking_version="test-chunking-v1",
+        chunks=[_chunk("same bytes")],
+        embeddings=[_vector(1)],
+        cache_versions=next_versions,
+        retrieval_threshold=0.30,
+    )
+
+    assert created.change is DocumentChange.CREATED
+    assert updated.change is DocumentChange.UPDATED
+    assert updated.document.version == 2
+    assert updated.invalidated_cache_entries == 1
+    with psycopg.connect(DATABASE_URL) as connection:
+        versions = connection.execute(
+            "SELECT version, indexing_version, ready FROM documents ORDER BY version"
+        ).fetchall()
+        cache = connection.execute(
+            "SELECT active, invalidation_reason FROM answer_cache"
+        ).fetchone()
+        vector = connection.execute(
+            """
+            SELECT embedding::text
+            FROM document_chunks
+            WHERE document_id = %s::uuid AND document_version = 2
+            """,
+            (updated.document.id,),
+        ).fetchone()
+    expected_v1 = build_indexing_version(
+        chunking_version="test-chunking-v1",
+        embedding_version=_VERSIONS.embedding_version,
+    )
+    expected_v2 = build_indexing_version(
+        chunking_version="test-chunking-v1",
+        embedding_version=next_versions.embedding_version,
+    )
+    assert versions == [(1, expected_v1, False), (2, expected_v2, True)]
+    assert cache == (False, "indexing_configuration_changed")
+    assert vector is not None and vector[0].startswith("[0,1,")
 
 
 async def test_cache_requires_all_versions_and_revision_guard_skips_stale_write() -> None:

@@ -76,6 +76,8 @@ class TransactionalIngestionService:
             raise ValueError("chunk_overlap must satisfy 0 <= overlap < chunk_size")
         if max_upload_bytes < 1:
             raise ValueError("max_upload_bytes must be positive")
+        if cache_versions.embedding_version != embedding_provider.embedding_version:
+            raise ValueError("cache and ingestion embedding versions must match")
         self._corpus_writer = corpus_writer
         self._embedding_provider = embedding_provider
         self._chunk_size = chunk_size

@@ -173,7 +173,7 @@ DB·migration·pgvector readiness:
 curl http://127.0.0.1:8000/health/ready
 ```
 
-기본 성공 응답은 credential 없이 `status=ready`, `migration_head=0002`,
+기본 성공 응답은 credential 없이 `status=ready`, `migration_head=0003`,
 `vector_version=0.8.6`만 반환하고,
 DB·migration·pgvector 검사가 실패하거나 기본 5초 bound를 넘으면 내부 예외를 숨긴
 `503`을 반환합니다. Codex 로그인과 LLM 호출은 readiness 조건이 아닙니다.
@@ -268,9 +268,9 @@ SQLite+Chroma의 두 저장·복구 경계를 PostgreSQL transaction 하나로 �
 | 파일 | 실제 경계 |
 |---|---|
 | `tests/test_v2_offline_paths.py` | in-process FastAPI ASGI TXT/PDF 수집·SSE, parser, PostgreSQL/pgvector RAG, exact/similar cache, 갱신 무효화 |
-| `tests/test_postgres_corpus_store.py` | transaction rollback, ready corpus, cache version, chunking-policy reupload, revision guard·동시성 |
+| `tests/test_postgres_corpus_store.py` | transaction rollback, ready corpus, cache version, chunking/index-policy reupload, revision guard·동시성 |
 | `tests/test_parsers_and_chunking.py` | page/offset, valid code-point 문자·proxy-token 이중 상한, policy/retrieval digest |
-| `tests/test_migrations.py` | empty DB, 재실행, checksum/history fail-closed, rollback, advisory lock, `0002` legacy backfill |
+| `tests/test_migrations.py` | empty DB, 재실행, checksum/history fail-closed, rollback, advisory lock, `0002`/`0003` legacy backfill |
 | `tests/test_test_container_isolation.py` | Node/Codex/API key/token/.codex 부재와 disposable effective libpq database target |
 | `tests/test_prompts.py` | JSON round-trip, question/evidence/metadata delimiter breakout, version SSOT |
 | `tests/test_prompt_packing.py` | 완성 prompt proxy budget, ranked skip/keep, 선택 citation/cache와 budget 기권 |
@@ -341,11 +341,18 @@ gold v1은 아직 사용자 채택 전이고 실제 Codex evaluator도
 우수하다고 주장하지 않습니다.
 
 `0002` migration은 기존 row의 `chunking_version`을
-`legacy-page-safe-character-v1:unknown-settings`로 표시하지만 배경에서 재청킹하지
-않습니다. 같은 filename과 bytes를 다시 업로드했을 때 content hash와 현재
-policy가 모두 같아야 `UNCHANGED`이며, policy가 다르면 `UPDATED`로 재청킹하고
-active answer cache를 전체 무효화합니다. 따라서 설정 변경 후 기존 문서를
-이관하려면 각 파일을 같은 filename으로 명시적으로 재업로드해야 합니다.
+`legacy-page-safe-character-v1:unknown-settings`로, `0003`은 `indexing_version`을
+`legacy-document-index-v1:unknown-settings`로 표시합니다. 둘 다 기존 chunk와 cache
+dependency를 보존하며 배경 재색인은 하지 않습니다. 같은 filename과 bytes를 다시
+업로드해도 content hash, chunking policy, embedding을 포함한 indexing policy가 모두
+같아야 `UNCHANGED`입니다. domain policy는 indexing ID를 chunking ID와 cache의 embedding
+version에서 한 번만 계산합니다. 원래 identity 문자열은 저장하지 않지만 digest를
+비밀화 수단으로 취급하지 않습니다.
+
+chunking policy가 다르면 `UPDATED`로 재청킹하고, chunking은 같지만 indexing policy가
+다르면 새 embedding으로 재색인합니다. 두 경로 모두 active answer cache를 전체
+무효화합니다. 설정 변경 뒤 legacy row를 현재 policy로 이관하려면 각 파일을 같은
+filename으로 명시적으로 재업로드해야 합니다.
 
 DB port는 기본 `127.0.0.1:15432`에만 공개됩니다. migration 상태 검사는 다음
 명령으로 수행합니다.

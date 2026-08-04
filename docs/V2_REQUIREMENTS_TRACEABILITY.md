@@ -38,15 +38,23 @@ V1의 과거 test/live smoke를 V2 증거로 재사용하지 않는다. 아래 �
 | `v2-retrobot-runtime` | hook 활성화·제한 입력·자동 회고 | runtime activation pair `PASS` |
 | `v2-remote-sync` | local/tracking/live remote | clean, ahead/behind `0/0`, exact SHA parity `PASS` |
 
-2026-08-04 current dirty-tree에서는 아래 local 실행을 새로 확인했습니다.
+2026-08-04 current `0003` dirty-tree에서는 아래 local 실행을 새로 확인했습니다.
 이는 아직 commit에 묶인 final receipt가 아니며 위 `3f1bc7d` 영수증을
 덮어쓰지 않습니다.
 
 | current-tree local 경계 | 실행 결과 | 제출 한계 |
 |---|---|---|
-| host static/offline | Ruff `PASS`; `262 passed, 20 skipped`; docs validator 8 files·69 links `PASS` | exact committed SHA 아님 |
-| canonical Docker | `276 passed, 6 skipped` | actual Codex·remote parity 미포함 |
-| disposable recovery | PostgreSQL 17, pgvector 0.8.6, logical/PITR `migration_head=0002`, 양쪽 checksum `true`, WAL `6`, cleanup container·volume·image 잔여 `0` | local dirty-tree 증거; production HA/RPO/RTO·exact-SHA 영수증 아님 |
+| host static/offline | lock·Ruff `PASS`; `264 passed, 22 skipped`; docs validator 8 files·69 links `PASS` | exact committed SHA 아님 |
+| canonical Docker | `280 passed, 6 skipped` | actual Codex·remote parity 미포함 |
+| product migration | 기존 local `0002`에서 `0003` 적용, 재검사 no-op, ledger `3`, 두 policy column default 제거, PostgreSQL `17.10`·pgvector `0.8.6` | local development DB 증거; production migration 아님 |
+| disposable recovery | PostgreSQL 17, pgvector 0.8.6, logical/PITR `migration_head=0003`, 양쪽 checksum `true`, WAL `6`, cleanup-before-receipt | local dirty-tree 증거; production HA/RPO/RTO·exact-SHA 영수증 아님 |
+
+아래 recovery receipt는 `0003` 추가 직전 C4 tree에서 실행한 역사 증거입니다. 현재
+`0003` candidate의 recovery 실행으로 재사용하지 않습니다.
+
+| pre-0003 역사 경계 | 실행 결과 | 제출 한계 |
+|---|---|---|
+| disposable recovery | PostgreSQL 17, pgvector 0.8.6, logical/PITR `migration_head=0002`, 양쪽 checksum `true`, WAL `6`, cleanup container·volume·image 잔여 `0` | pre-`0003` 역사 증거; current local 결과는 상단 표가 소유 |
 
 Profile ID는 제출 repository 밖의 evidence-control Wiki에서 사용하는 audit
 이름입니다. 평가자가 repository 안에서 재현할 core/readiness/live 명령은 README와
@@ -61,7 +69,7 @@ tests에 두며, 원문 답변·credential·전체 실행 log는 source에 복�
 |---|---|---|
 | `REQ-01` 업로드 | FastAPI multipart와 입력 검증 | `VERIFIED` |
 | `REQ-02` 파싱 | 실제 TXT/PDF/Markdown parser와 page/offset | `VERIFIED` |
-| `REQ-03` 저장 | transactional ingestion, ready/version, same-hash+same-policy no-op | `VERIFIED` |
+| `REQ-03` 저장 | transactional ingestion, ready/version, same-hash+same-chunk/index-policy no-op | `VERIFIED` |
 | `REQ-04` RAG | PostgreSQL pgvector `<=>`, 한국어 fixture, top citation | `VERIFIED` |
 | `REQ-05` 답변 | production Codex gateway와 actual live runtime | `VERIFIED` |
 | `REQ-06` 출처 | server-side chunk→versioned citation mapper와 live receipt | `VERIFIED` |
@@ -94,7 +102,7 @@ candidate에서 `PARTIAL`입니다.
 | `OPS-02` | `/health/ready` DB/migration/vector success·failure·timeout | `VERIFIED` |
 | `OPS-03` | isolated Compose test와 suite별 temporary database | `VERIFIED` |
 | `OPS-04` | raw question/evidence 없는 terminal timing receipt와 best-effort JSON sink | `PARTIAL` — local·과거 hosted 회귀 PASS; final current-SHA bundle 전 |
-| `OPS-05` | 논리 snapshot restore와 physical base backup + archived-WAL target recovery, source migration head·checksum ledger를 분리 검증하는 local disposable drill | `PARTIAL` — current dirty-tree actual drill `PASS`(`0002`, 양쪽 checksum 일치, WAL `6`, cleanup container·volume·image 잔여 `0`); exact committed SHA 영수증 전 |
+| `OPS-05` | 논리 snapshot restore와 physical base backup + archived-WAL target recovery, source migration head·checksum ledger를 분리 검증하는 local disposable drill | `PARTIAL` — current dirty-tree `0003` actual `PASS`(양쪽 checksum 일치, WAL `6`, cleanup-before-receipt); exact committed SHA 영수증 전 |
 
 `OPS-05`는 공식 과제 rule이 아닌 선택 운영 증거입니다. local drill 결과를
 production recoverability, RPO/RTO 또는 HA로 승계하지 않으며 `REQ-09`의 점수 판정도
@@ -111,12 +119,12 @@ production recoverability, RPO/RTO 또는 HA로 승계하지 않으며 `REQ-09`�
 | `P0-PROMPT-01` | deterministic JSON serialization과 breakout | 없음 | `VERIFIED` |
 | `P0-STRUCT-01` | 한 필드 schema→plaintext projection, protocol/API/cache failure 경계 | actual live만 offline double | `VERIFIED` |
 | `P0-PROMPT-02` | 완성 prompt tiktoken `o200k_base` proxy count, ranked packing, 선택 citation, partial no-cache와 별도 budget 기권 | tokenizer/LLM deterministic double | `PARTIAL` — focused local·과거 hosted 회귀 PASS; final current-SHA bundle 전 |
-| `INT-CHUNK-01` | page-safe 900 code point·900 `o200k_base` proxy-token 이중 상한, 150 code-point overlap, policy/retrieval digest, `0002` sentinel과 same-file reupload 이관 | tokenizer/embedding deterministic double | `PARTIAL` — 내부 품질 위험 항목; 구현 회귀와 별개로 사용자 승인 gold actual 품질 run이 없음 |
+| `INT-CHUNK-01` | page-safe 900 code point·900 `o200k_base` proxy-token 이중 상한, 150 code-point overlap, chunk/retrieval digest, `0002` chunk sentinel, `0003` indexing sentinel과 same-file 재청킹·재색인 | tokenizer/embedding deterministic double | `PARTIAL` — 내부 품질 위험 항목; 구현 회귀와 별개로 사용자 승인 gold actual 품질 run이 없음 |
 
 `INT-CHUNK-01`은 공식 불합격 `DQ-01`~`DQ-07`이 아닌 내부 품질 항목입니다.
 이 변경은 token-dense 입력의 chunk 상한과 stale cache 경계를 줄이지만,
 retrieval·answer 품질 향상이나 `REQ-09` 점수 상승을 증명하지 않습니다.
-current candidate readiness target은 migration head `0002`이며, 위 `3f1bc7d` 표의
+current candidate readiness target은 migration head `0003`이며, 위 `3f1bc7d` 표의
 `0001`은 과거 baseline 영수증을 그대로 보존한 값입니다.
 
 ### 3.1 제안 품질 평가
@@ -143,11 +151,10 @@ docker compose run --build --rm test
 runtime test입니다. 필수 `TEST-01`~`TEST-03` node는 collect-only로 `3/3` 존재를
 별도 확인합니다.
 
-현 candidate의 host suite는 Compose DB URL·test-container sentinel이 없는
-빠른 선택 집합으로 `262 passed, 20 skipped`입니다. canonical Docker
-suite는 DB 경로를 포함하되 host Git·flock runtime 여섯 건을 제외하며,
-`276 passed, 6 skipped`입니다. 최종 current-tree 숫자는 상단 표와 final
-rerun 영수증이 소유합니다.
+현 candidate의 최신 test 수는 상단 current-tree 표가 한 번만 소유합니다. host
+suite는 Compose DB URL·test-container sentinel이 없는 빠른 선택 집합이고,
+canonical Docker suite는 DB 경로를 포함하되 host Git·flock runtime 여섯 건을
+제외합니다.
 host와 Docker 수를 합산하지 않고 실행 환경별 명시적 selection으로
 해석합니다. 과거 숫자는 상단 `3f1bc7d` 기준선 표에만 보존합니다.
 

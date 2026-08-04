@@ -28,7 +28,7 @@ EXPECTED_MIGRATION_OUTPUT = "\n".join(
 VALID_OBSERVATION = DrillObservation(
     postgres_major=17,
     vector_version="0.8.6",
-    migration_head="0002",
+    migration_head="0003",
     logical_marker_count=1,
     logical_schema_present=True,
     logical_migrations_verified=True,
@@ -57,7 +57,7 @@ def test_receipt_keeps_logical_restore_distinct_from_pitr_and_is_sanitized() -> 
             "pitr": False,
             "marker_count": 1,
             "schema_present": True,
-            "migration_head": "0002",
+            "migration_head": "0003",
             "migration_checksums_verified": True,
         },
         "pitr": {
@@ -70,7 +70,7 @@ def test_receipt_keeps_logical_restore_distinct_from_pitr_and_is_sanitized() -> 
             "promoted": True,
             "recovery_signal_removed": True,
             "schema_present": True,
-            "migration_head": "0002",
+            "migration_head": "0003",
             "migration_checksums_verified": True,
         },
         "cleanup": "completed_before_receipt",

@@ -203,7 +203,7 @@ async def test_http_ingestion_uses_real_txt_pdf_parser_migration_and_postgres() 
     assert ready_response.status_code == 200
     assert ready_response.json() == {
         "status": "ready",
-        "migration_head": "0002",
+        "migration_head": "0003",
         "vector_version": "0.8.6",
     }
     assert llm.prompts == []
@@ -211,7 +211,7 @@ async def test_http_ingestion_uses_real_txt_pdf_parser_migration_and_postgres() 
     with psycopg.connect(DATABASE_URL) as connection:
         documents = connection.execute(
             """
-            SELECT filename, version, ready, chunking_version
+            SELECT filename, version, ready, chunking_version, indexing_version
             FROM documents
             ORDER BY filename
             """
@@ -238,6 +238,7 @@ async def test_http_ingestion_uses_real_txt_pdf_parser_migration_and_postgres() 
         ("교육-복지.txt", 1, True),
     ]
     assert all(str(row[3]).startswith("page-safe-dual-bound-v1:") for row in documents)
+    assert all(str(row[4]).startswith("document-index-v1:") for row in documents)
     assert pdf_page == (1,)
     assert migration_count is not None and migration_count[0] >= 1
     assert vector_version is not None

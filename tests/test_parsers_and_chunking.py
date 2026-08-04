@@ -13,6 +13,7 @@ from officeagent.application.chunking import (
     prepare_chunks,
 )
 from officeagent.application.question_answering import build_retrieval_version
+from officeagent.domain.indexing import build_indexing_version
 from officeagent.domain.models import DocumentRecord, ExtractedSection
 from officeagent.infrastructure.parsers import extract_sections
 from officeagent.infrastructure.tokenization import TiktokenTokenCounter
@@ -184,6 +185,27 @@ def test_chunking_version_covers_policy_without_exposing_tokenizer_identity() ->
         minimum_score=0.3,
         cache_threshold=0.95,
     ).startswith("cosine-score-v1:")
+
+
+def test_indexing_version_covers_chunks_and_embeddings_without_exposing_identity() -> None:
+    chunking_version = "page-safe-dual-bound-v1:chunk-private"
+    embedding_version = "fastembed:/private/model/path:dimension=384"
+    baseline = build_indexing_version(
+        chunking_version=chunking_version,
+        embedding_version=embedding_version,
+    )
+
+    assert baseline.startswith("document-index-v1:")
+    assert chunking_version not in baseline
+    assert embedding_version not in baseline
+    assert baseline != build_indexing_version(
+        chunking_version="different-chunks",
+        embedding_version=embedding_version,
+    )
+    assert baseline != build_indexing_version(
+        chunking_version=chunking_version,
+        embedding_version="different-embedding",
+    )
 
 
 def test_chunk_tokenizer_failure_is_sanitized_and_fails_closed() -> None:

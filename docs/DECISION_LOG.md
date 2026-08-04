@@ -18,15 +18,15 @@ remote parity와 runtime freshness는
 ## Register
 
 `DEC-001`~`DEC-009`는 제출 가능한 V1 기준선의 ACTIVE 결정입니다.
-`DEC-010`, `DEC-011`, `DEC-013`~`DEC-018`은 P0-08 계약에 따라 `PROPOSED` overlay로
+`DEC-010`, `DEC-011`, `DEC-013`~`DEC-019`는 P0-08 계약에 따라 `PROPOSED` overlay로
 유지하며 V1 결정을 대체하지 않습니다. `DEC-012`의 structured-output 보류는
 V2 branch에서 `DEC-013`이 supersede했습니다. 이 lifecycle과 별개로 현재
 구현·검증 evidence는 V2 Traceability에서 판정합니다.
 
 P0-08은 구현 미완료 표지가 아니라 V1 rollback 결정을 `main`에서 자동 supersede하지
-않도록 미리 고정한 review 경계입니다. DEC-010·011·013~017은 `main`
-supersession에 대해 `PROPOSED`, V2 branch 구현 evidence는 `VERIFIED`입니다.
-DEC-018도 lifecycle은 `PROPOSED`이며 구현·품질 evidence는 V2 Traceability의
+않도록 미리 고정한 review 경계입니다. DEC-010·011·013~019는 `main`
+supersession에 대해 `PROPOSED`입니다. V2 branch의 구현 evidence는 V2
+Traceability에서 별도로 판정하며, DEC-018·019의 품질 evidence는
 `INT-CHUNK-01` 판정을 따릅니다.
 
 | ID | Status | What | Why | How | Trade-off | Evidence | ADR |
@@ -49,6 +49,7 @@ DEC-018도 lifecycle은 `PROPOSED`이며 구현·품질 evidence는 V2 Traceabil
 | DEC-016 | PROPOSED | 완성 application prompt를 tiktoken `o200k_base` proxy로 세고, 기본 `4096` 안에 드는 retrieval-ordered evidence만 Codex·citation에 사용한다. | 비정상적으로 큰 검색 문맥을 LLM에 그대로 보내는 경로를 제한하면서 작은 top-k를 유지한다. | 전체 prompt fast path 뒤 rank 순서의 greedy keep/oversized skip을 적용한다. 하나도 못 넣으면 `prompt_budget`으로 LLM/cache를 건너뛰고, 일부 제외 답변은 cache하지 않는다. template·counter digest·budget을 effective prompt version에 묶는다. | exact Codex tokenizer·system context·output reserve 보장이 아니며, encoding 최초 load와 repeated count 비용, cache reuse 감소, 큰 상위 hit를 건너뛰는 품질 trade-off가 있다. 의미 entailment도 검증하지 않는다. | `src/officeagent/application/prompts.py`, `src/officeagent/infrastructure/tokenization.py`, `tests/test_prompt_packing.py`, `PROMPT_DESIGN.md` | — |
 | DEC-017 | PROPOSED | 논리 snapshot restore와 physical archived-WAL PITR를 분리한 opt-in disposable PostgreSQL 17 drill을 둔다. | backup 생성 명령의 존재보다 실제 restore 가능성과 PITR 용어 경계를 실행으로 확인한다. | 제품 migration runner와 source ledger, dedicated replication role, custom dump restore, verified base backup, target 전·후 marker replay, promotion과 cleanup-before-receipt를 검사한다. | 같은 local Docker backend의 합성 증거이며 schedule·retention·off-host copy·encryption·monitoring, production RPO/RTO와 HA를 제공하지 않는다. | `compose.recovery-drill.yaml`, `src/officeagent/infrastructure/postgres_recovery_drill.py`, `tests/test_postgres_recovery_drill.py`, [Evaluator Manual](EVALUATOR_MANUAL.md#33-일회용-postgresql-복구-drill) | — |
 | DEC-018 | PROPOSED | page-safe chunk에 기본 900 code point·900 `o200k_base` proxy-token 이중 상한과 150 code-point overlap을 적용하고 policy를 versioning한다. | token-dense 입력의 과대 chunk를 제한하고 경계 변경 후 이전 vector·answer cache를 조용히 재사용하지 않는다. | algorithm, 상한, overlap, tokenizer identity를 digest해 `documents.chunking_version`과 retrieval identity에 연결한다. `0002`는 legacy row를 unknown-settings로 표시하고 same-file reupload의 policy mismatch만 `UPDATED`·재청킹·전체 cache invalidation으로 이관한다. | overlap은 code-point 단위고 grapheme 경계·background rechunk는 제공하지 않는다. semantic 경계, 정확한 Codex tokenizer, gold-set 품질 향상을 보장하지 않고 policy 변경 시 embedding·cache reuse가 줄어든다. | `src/officeagent/application/chunking.py`, `src/officeagent/migrations/0002_document_chunking_version.sql`, `tests/test_parsers_and_chunking.py`, `tests/test_postgres_corpus_store.py` | — |
+| DEC-019 | PROPOSED | persisted vector의 indexing ID를 chunking ID와 embedding version의 digest로 정의하고 domain policy에서 단일 계산한다. | embedding 교체 뒤 같은 bytes가 `UNCHANGED`로 남아 old document vector와 new query vector를 비교하는 silent drift를 막는다. | `0003`은 legacy row를 unknown-settings로 표시한다. same-file reupload에서 content·chunking·indexing이 모두 같을 때만 no-op이며 indexing mismatch는 재embedding과 전체 cache invalidation을 수행한다. | background reindex는 없으므로 legacy row는 명시적 재업로드가 필요하다. digest는 raw identity를 복제하지 않지만 비밀화 수단은 아니다. policy 변경 시 cache와 embedding reuse가 줄어든다. | `src/officeagent/domain/indexing.py`, `src/officeagent/infrastructure/postgres_corpus_store.py`, `src/officeagent/migrations/0003_document_indexing_version.sql`, `tests/test_migrations.py`, `tests/test_postgres_corpus_store.py` | — |
 
 ## History Policy
 
@@ -61,6 +62,9 @@ DEC-018도 lifecycle은 `PROPOSED`이며 구현·품질 evidence는 V2 Traceabil
 - evidence/receipt 상태는 불변 source commit에 연결하고 최신 Submission HEAD는 Control sync에서 갱신한다.
 ## Revision History
 
+- 2026-08-04: chunking·embedding을 함께 묶는 document indexing identity와
+  forward-only `0003` same-file 재색인 경계를 DEC-019로 기록했다. background
+  reindex나 품질 향상은 주장하지 않는다.
 - 2026-08-04: page-safe 문자·proxy-token 이중 상한, chunking policy digest와
   forward-only same-file reupload 이관 경계를 DEC-018로 기록했다. 품질 향상은
   실행하지 않은 gold 평가 전까지 주장하지 않는다.
