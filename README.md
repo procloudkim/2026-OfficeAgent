@@ -104,7 +104,7 @@ image의 부재를 재조회한 뒤에만 제한된 `PASS`를 출력합니다. �
 production HA, zero-loss, RPO/RTO 또는 서로 다른 failure domain의 증거가 아닙니다.
 
 최초 workflow capsule은 exact head `d86f4c4`의
-[hosted run #2](https://github.com/procloudkim/officeagent-onboarding-challenge/actions/runs/30823239327)에서
+비공개 평가 저장소의 hosted run #2에서
 전 단계를 통과했습니다. 이 실행은 이후 HEAD의 증거로 재사용하지 않으며, Draft PR의
 현재 commit마다 새 check 결과를 확인합니다.
 
