@@ -107,6 +107,9 @@ production HA, zero-loss, RPO/RTO 또는 서로 다른 failure domain의 증거�
 비공개 평가 저장소의 hosted run #2에서
 전 단계를 통과했습니다. 이 실행은 이후 HEAD의 증거로 재사용하지 않으며, Draft PR의
 현재 commit마다 새 check 결과를 확인합니다.
+공개 저장소로 옮긴 뒤의 첫 실행(커밋 `54e3c07`)도
+[quality-gates run](https://github.com/procloudkim/2026-OfficeAgent/actions/runs/40166587343)에서
+전 단계를 통과했습니다.
 
 ## 제품 실행
 
