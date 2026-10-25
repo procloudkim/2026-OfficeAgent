@@ -1,33 +1,33 @@
 # OfficeAgent Document Q&A API
 
-> 채용 과제 풀이입니다. 과제 템플릿은 [roboco-io/officeagent-onboarding-challenge](https://github.com/roboco-io/officeagent-onboarding-challenge)입니다.
-> 제출한 상태는 GitHub Tags의 [`submission-final-locked-20260804`](https://github.com/procloudkim/2026-OfficeAgent/tree/submission-final-locked-20260804)(커밋 `15eb559`)로 고정해 두었고, 그 뒤에는 문서만 보강했습니다.
+> 공개 과제 템플릿 [roboco-io/officeagent-onboarding-challenge](https://github.com/roboco-io/officeagent-onboarding-challenge)를 바탕으로 만든 개인 프로젝트입니다.
+> 구현을 마친 상태는 GitHub Tags의 [`submission-final-locked-20260804`](https://github.com/procloudkim/2026-OfficeAgent/tree/submission-final-locked-20260804)(커밋 `15eb559`)로 고정해 두었고, 그 뒤에는 문서만 보강했습니다.
 
 ## 한눈에 보기
 
-사용자가 올린 문서(PDF·TXT·Markdown)를 근거로 질문에 답하는 API 서버입니다. 같은 질문이나 거의 같은 질문이 다시 오면, AI를 다시 부르지 않고 저장해 둔 답을 돌려줍니다. 관련 내용을 찾지 못하면 AI를 부르지 않고 답할 수 없다고 알리며, 답에는 AI에 보낸 문서 조각의 이름·version·위치를 출처로 붙입니다.
+사용자가 올린 문서(PDF·TXT·Markdown)를 근거로 질문에 답하는 API 서버입니다. 같거나 비슷한 질문이 다시 오면, 저장해 둔 답이 아직 유효한 경우 AI를 다시 부르지 않고 그 답을 돌려줍니다. 관련 내용을 찾지 못하면 AI를 부르지 않고 답할 수 없다고 알립니다. 답에는 AI에 보낸 조각마다 파일 이름·문서 version·위치를 출처로 붙입니다.
 
 | 항목 | 내용 |
 |---|---|
 | 기간 | 2026.07.28 – 2026.08.04 |
-| 역할 | 1인 수행: 설계·구현·테스트·제출 문서 |
+| 역할 | 1인 수행: 설계·구현·테스트·문서 |
 | 다룬 문제 | 문서가 바뀌거나 같은 문서가 동시에 올라올 때, 저장해 둔 예전 답이 다시 나가거나 저장된 데이터끼리 어긋나는 문제 |
 | 기술 | Python · FastAPI · PostgreSQL 17 + pgvector · Psycopg 3 · FastEmbed · Codex App Server(답을 만드는 AI) · SSE · Docker Compose · GitHub Actions |
 | 검증 | 테스트 함수 242개. GitHub Actions(`quality-gates`)가 PostgreSQL을 띄워 전체 테스트를 실행합니다 |
-| AI 도구 | 코드는 코딩 도구 Codex와 함께 작성했습니다. 서버가 답을 만들 때 부르는 Codex App Server와는 쓰임이 다릅니다. 2026-10에 더한 이 절과 동작 원리 문서는 Claude Code로 작성하고 직접 검토했습니다 |
+| AI 도구 | 코드는 코딩 도구 Codex와 함께 작성했습니다. 서버가 답을 만들 때 부르는 Codex App Server와는 쓰임이 다릅니다. 2026.10에 더한 「한눈에 보기」 절과 동작 원리 문서는 Claude Code로 작성하고 직접 검토했습니다 |
 
-| 기능 | 보장하는 것 | 설명 |
+| 기능 | 지키는 규칙 | 설명 |
 |---|---|---|
 | 문서 저장 | 문서·조각·저장된 답의 변경이 한 transaction으로 함께 성공하거나 함께 취소됩니다 | [동작 원리 1](./docs/HOW-IT-WORKS.md#1-문서-저장-한-transaction) |
-| 동시 업로드 | 같은 문서가 동시에 올라와도 한쪽이 오류로 끝나지 않고 차례로 처리됩니다 | [동작 원리 2](./docs/HOW-IT-WORKS.md#2-같은-문서의-동시-업로드-advisory-lock) |
-| 답 재사용 | 설정이 바뀌거나 문서가 갱신되면 저장된 예전 답을 다시 쓰지 않습니다 | [동작 원리 3](./docs/HOW-IT-WORKS.md#3-저장된-답의-재사용-조건-세-가지-version) |
+| 동시 업로드 | 같은 문서의 업로드 두 건이 겹쳐도, 한쪽이 오류로 끝나지 않고 차례로 처리됩니다 | [동작 원리 2](./docs/HOW-IT-WORKS.md#2-같은-문서의-동시-업로드-advisory-lock) |
+| 답 재사용 | 설정이 바뀌거나 문서가 갱신되면 저장된 예전 답을 재사용하지 않습니다 | [동작 원리 3](./docs/HOW-IT-WORKS.md#3-저장된-답의-재사용-조건-세-가지-version) |
 | 기권 | 관련 내용을 찾지 못하면 AI를 부르지 않고 답할 수 없다고 알립니다 | [동작 원리 4](./docs/HOW-IT-WORKS.md#4-기권-답할-근거가-부족할-때) |
 | 스트리밍 | 첫 글자가 나가기 전에만 다시 시도해서, 화면에 두 답이 섞이지 않습니다 | [동작 원리 5](./docs/HOW-IT-WORKS.md#5-스트리밍-중-오류-첫-글자-전에만-재시도) |
 | 답변 중 문서 변경 | 답을 만드는 동안 문서가 바뀌면, 그 답을 저장해 두지 않습니다 | [동작 원리 6](./docs/HOW-IT-WORKS.md#6-답을-만드는-동안-바뀐-문서-revision-비교) |
 
-낱말 풀이와 전체 흐름은 [동작 원리 「처리 흐름」](./docs/HOW-IT-WORKS.md#처리-흐름)과 [「용어」](./docs/HOW-IT-WORKS.md#용어)에 있습니다.
+전체 흐름과 낱말 풀이는 [동작 원리 「처리 흐름」](./docs/HOW-IT-WORKS.md#처리-흐름)과 [「용어」](./docs/HOW-IT-WORKS.md#용어)에 있습니다.
 
-**경계:** 운영 환경에 배포한 서비스가 아닙니다. 성능 측정(benchmark), 자동 장애 전환과 운영 환경의 고가용성(HA), OCR은 하지 않았고, 답의 문장마다 출처가 뒷받침하는지는 검증하지 않습니다. 코드를 다시 읽으며 찾은 한계는 [동작 원리 「알려진 한계」](./docs/HOW-IT-WORKS.md#알려진-한계)에 적었습니다.
+**경계:** 운영 환경에 배포한 서비스가 아닙니다. 성능 측정(benchmark)은 하지 않았고, 자동 장애 전환, 운영 환경의 고가용성(HA), OCR은 구현하지 않았습니다. 서버는 답의 문장마다 출처가 뒷받침하는지 검증하지 않습니다. 코드를 다시 읽으며 찾은 한계는 [동작 원리 「알려진 한계」](./docs/HOW-IT-WORKS.md#알려진-한계)에 적었습니다.
 
 ---
 
