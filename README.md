@@ -1,5 +1,31 @@
 # OfficeAgent Document Q&A API
 
+> 채용 과제 풀이입니다. 과제 템플릿은 [roboco-io/officeagent-onboarding-challenge](https://github.com/roboco-io/officeagent-onboarding-challenge)입니다.
+> 제출본은 태그 `submission-final-locked-20260804`(`15eb559`)이고, 그 뒤의 변경은 문서 보강뿐입니다.
+
+## 한눈에 보기
+
+| 항목 | 내용 |
+|---|---|
+| 기간 | 2026.07.28 – 2026.08.04 |
+| 역할 | 1인 수행: 설계·구현·테스트·문서 |
+| 다룬 문제 | 문서가 바뀌거나 같은 문서가 동시에 갱신될 때, 낡은 답이 cache에 남거나 저장소끼리 어긋나는 문제 |
+| 기술 | Python · FastAPI · PostgreSQL 17 + pgvector · Psycopg 3 · FastEmbed · Codex App Server · SSE · Docker Compose · GitHub Actions |
+| 검증 | 테스트 함수 242개, CI `quality-gates` |
+| AI 도구 | 구현은 Codex와 함께 했습니다. 2026-10 문서 보강은 Claude Code가 초안을 쓰고 지원자가 검토했습니다 |
+
+| 기능 | 보장하는 것 | 설명 |
+|---|---|---|
+| 문서 업로드 | 문서·벡터·cache 변경이 한 transaction으로 함께 성공하거나 함께 취소됩니다 | [동작 원리 1](./docs/HOW-IT-WORKS.md#1-문서벡터cache를-한-transaction으로-저장한다) |
+| 동시 갱신 | 같은 문서의 동시 업로드는 차례로 처리되고, 다른 문서는 병렬로 처리됩니다 | [동작 원리 2](./docs/HOW-IT-WORKS.md#2-같은-문서의-동시-업로드는-advisory-lock으로-한-줄로-세운다) |
+| 답변 cache | 설정이 바뀌거나 문서가 갱신되면 낡은 답을 재사용하지 않습니다 | [동작 원리 3·4](./docs/HOW-IT-WORKS.md#3-cache는-세-가지-version이-모두-맞을-때만-쓴다) |
+| 스트리밍 | 첫 글자가 나가기 전에만 다시 시도해서, 화면에 답이 섞이지 않습니다 | [동작 원리 5](./docs/HOW-IT-WORKS.md#5-sse는-첫-글자가-나가기-전에만-다시-시도한다) |
+| 기권 | 근거가 없으면 LLM을 부르지 않고 답하지 않습니다 | [동작 원리 6](./docs/HOW-IT-WORKS.md#6-근거가-없으면-답하지-않는다기권) |
+
+**경계:** 운영 환경에 배포한 서비스가 아니며, 성능 benchmark·HA·OCR은 하지 않았습니다.
+
+---
+
 PDF·TXT·Markdown 문서를 저장하고 PostgreSQL+pgvector에서 관련 내용을 검색하는
 FastAPI 문서 Q&A 서버입니다. 근거가 없으면 답변하지 않으며, 근거가 있으면 Codex
 App Server 응답을 SSE로 전달하고 문서명·버전·청크 위치를 출처로 함께 반환합니다.
